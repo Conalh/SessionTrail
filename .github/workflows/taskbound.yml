@@ -1,0 +1,19 @@
+name: TaskBound
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scope-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: Conalh/TaskBound@v0.2.2
+        with:
+          fail-on: none
