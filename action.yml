@@ -1,0 +1,127 @@
+name: SessionTrail
+description: Runtime behavior review for AI agent sessions.
+author: Conal
+
+branding:
+  icon: pulse
+  color: purple
+
+inputs:
+  transcript:
+    description: Path to a Cursor agent transcript JSONL file.
+    required: false
+    default: ''
+  transcript-dir:
+    description: Directory containing transcript JSONL files. Used when transcript is not provided.
+    required: false
+    default: ''
+  repo:
+    description: Repository root used to judge in-repo vs out-of-repo behavior. Defaults to GITHUB_WORKSPACE.
+    required: false
+    default: ''
+  fail-on:
+    description: Severity that fails the action. Use none, low, medium, high, or critical.
+    required: false
+    default: none
+
+outputs:
+  rating:
+    description: Highest SessionTrail behavior rating.
+    value: ${{ steps.run.outputs.rating }}
+  finding-count:
+    description: Total SessionTrail findings in the session review.
+    value: ${{ steps.run.outputs.finding-count }}
+  tool-invocation-count:
+    description: Total tool invocations parsed from the transcript.
+    value: ${{ steps.run.outputs.tool-invocation-count }}
+  unique-tool-count:
+    description: Number of unique tools invoked in the session.
+    value: ${{ steps.run.outputs.unique-tool-count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install SessionTrail
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_ACTION_PATH"
+        npm ci
+
+    - name: Build SessionTrail
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_ACTION_PATH"
+        npm run build
+
+    - name: Run SessionTrail behavior review
+      id: run
+      shell: bash
+      env:
+        TRAIL_TRANSCRIPT: ${{ inputs.transcript }}
+        TRAIL_TRANSCRIPT_DIR: ${{ inputs.transcript-dir }}
+        TRAIL_REPO: ${{ inputs.repo }}
+        TRAIL_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -euo pipefail
+
+        transcript="${TRAIL_TRANSCRIPT:-}"
+        transcript_dir="${TRAIL_TRANSCRIPT_DIR:-}"
+        repo="${TRAIL_REPO:-$GITHUB_WORKSPACE}"
+        fail_on="${TRAIL_FAIL_ON:-none}"
+
+        if [ -z "$transcript" ] && [ -z "$transcript_dir" ]; then
+          echo "::error::SessionTrail needs transcript or transcript-dir input."
+          exit 2
+        fi
+
+        report_file="${RUNNER_TEMP:-.}/sessiontrail-report.md"
+        json_file="${RUNNER_TEMP:-.}/sessiontrail-report.json"
+
+        if [ -n "$transcript" ]; then
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format markdown | tee "$report_file"
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format json > "$json_file"
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format github
+        else
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format markdown | tee "$report_file"
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format json > "$json_file"
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format github
+        fi
+
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          cat "$report_file" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        rating="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).rating)" "$json_file")"
+        finding_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).findingCount)" "$json_file")"
+        tool_invocation_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).toolInvocationCount)" "$json_file")"
+        unique_tool_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).uniqueToolCount)" "$json_file")"
+        echo "rating=$rating" >> "$GITHUB_OUTPUT"
+        echo "finding-count=$finding_count" >> "$GITHUB_OUTPUT"
+        echo "tool-invocation-count=$tool_invocation_count" >> "$GITHUB_OUTPUT"
+        echo "unique-tool-count=$unique_tool_count" >> "$GITHUB_OUTPUT"
+
+        rank() {
+          case "$1" in
+            none) echo 0 ;;
+            low) echo 1 ;;
+            medium) echo 2 ;;
+            high) echo 3 ;;
+            critical) echo 4 ;;
+            *) echo -1 ;;
+          esac
+        }
+
+        fail_rank="$(rank "$fail_on")"
+        rating_rank="$(rank "$rating")"
+
+        if [ "$fail_rank" -lt 0 ]; then
+          echo "::error::Invalid fail-on value '$fail_on'. Use none, low, medium, high, or critical."
+          exit 2
+        fi
+
+        if [ "$fail_rank" -gt 0 ] && [ "$rating_rank" -ge "$fail_rank" ]; then
+          echo "::error::SessionTrail behavior rating $rating meets fail-on threshold $fail_on."
+          exit 1
+        fi

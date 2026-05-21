@@ -1,0 +1,19 @@
+name: Missing behavior signal
+description: Ask SessionTrail to parse another transcript format or runtime behavior pattern.
+title: "[signal]: "
+labels: ["detector", "new-signal"]
+body:
+  - type: input
+    id: signal
+    attributes:
+      label: Behavior signal
+      description: Example: Claude Code logs, denied tool results, terminal output, MCP server responses.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Transcript or log examples
+      description: Describe the session behavior that should produce findings.
+    validations:
+      required: true

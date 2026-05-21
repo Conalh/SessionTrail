@@ -1,0 +1,26 @@
+name: Detector false positive
+description: Report a SessionTrail finding that should be quieter or more precise.
+title: "[false positive]: "
+labels: ["detector", "false-positive"]
+body:
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding
+      description: Paste the SessionTrail finding text or warning annotation.
+    validations:
+      required: true
+  - type: textarea
+    id: transcript-shape
+    attributes:
+      label: Transcript shape
+      description: Share a redacted snippet or describe the tool-use pattern.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain whether SessionTrail should ignore it, lower severity, or classify it differently.
+    validations:
+      required: true

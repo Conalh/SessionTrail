@@ -1,0 +1,18 @@
+{
+  "name": "sessiontrail",
+  "version": "0.1.0",
+  "description": "Runtime behavior review for AI agent sessions.",
+  "type": "module",
+  "bin": {
+    "sessiontrail": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

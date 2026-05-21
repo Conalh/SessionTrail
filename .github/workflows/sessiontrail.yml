@@ -1,0 +1,19 @@
+name: SessionTrail
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  behavior-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./
+        with:
+          transcript: test/fixtures/rogue-session.jsonl
+          repo: .
+          fail-on: none
