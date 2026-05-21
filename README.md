@@ -7,14 +7,15 @@
 
 Runtime behavior review for AI agent sessions.
 
-SessionTrail is a free OSS CLI and GitHub Action that parses local Cursor agent transcripts and flags risky **runtime behavior intent** during a session.
+SessionTrail is a free OSS CLI and GitHub Action that parses Cursor, Claude Code, and Codex transcripts and flags risky **runtime behavior intent** during a session.
 
-- Tool invocations parsed from Cursor JSONL transcripts
+- Tool invocations parsed from Cursor, Claude Code, and Codex JSONL transcripts
 - Reads and writes outside the declared repository root
 - Home-directory and cross-session transcript access
 - Shell commands, MCP tool calls, and external network intent
 - Path heat map and behavior summary in Markdown/JSON output
 - Terminal, Markdown, JSON, and GitHub annotation output
+- Runtime summary across multiple agent families in one PR review
 
 It is intentionally not a hosted scanner. SessionTrail reads local transcript files, uploads nothing by default, and starts advisory with `fail-on: none`.
 
@@ -54,6 +55,12 @@ Audit every JSONL file in a transcript directory:
 node dist/index.js audit --transcript-dir C:/Users/conno/.cursor/projects/c-Dev-Demo/agent-transcripts --repo C:/Dev/Demo --format json
 ```
 
+Supported transcript families:
+
+- Cursor-style JSONL with assistant `tool_use` blocks.
+- Claude Code JSONL with assistant `tool_use` blocks and `file_path` inputs.
+- Codex JSONL with `response_item` function calls and JSON or freeform tool arguments.
+
 ## GitHub Action
 
 Review a transcript artifact against a repository root:
@@ -80,6 +87,36 @@ jobs:
           fail-on: none
 ```
 
+Review transcripts downloaded from a pull-request artifact:
+
+```yaml
+name: SessionTrail
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sessiontrail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: ai-agent-transcripts
+          path: sessiontrail-transcripts
+
+      - uses: Conalh/SessionTrail@v0.1.0
+        with:
+          transcript-dir: sessiontrail-transcripts
+          repo: .
+          fail-on: none
+```
+
 The action uploads nothing by default. It reads the transcript from the workspace, writes a Markdown report to the GitHub Actions step summary, and emits warning annotations for each finding.
 
 Action outputs:
@@ -88,6 +125,7 @@ Action outputs:
 - `finding-count`: total findings in the session review
 - `tool-invocation-count`: total tool invocations parsed
 - `unique-tool-count`: number of unique tools invoked
+- `runtime-count`: number of agent runtimes represented in the reviewed transcripts
 
 ## Current Findings
 
@@ -95,13 +133,14 @@ SessionTrail v0 detects:
 
 - Reads outside the declared repository root.
 - Writes outside the declared repository root.
-- Home-directory or Cursor metadata access.
+- Privileged path access (`.ssh`, `.aws`, `.kube`, `.gnupg`, `/etc/shadow`, `/private/var`) — emitted as a separate `critical` finding.
+- Home directory and agent-metadata access (`.cursor`, `.codex`, `.claude`, `.aider`, `.continue`, `.vscode-server`) — Windows, POSIX, WSL (`\\wsl$\`, `\\wsl.localhost\`), and unexpanded `~` paths.
 - Cross-session transcript reads.
-- Shell command invocations.
+- Shell command invocations — chained pipelines (`;`, `|`, `&&`, `||`) are split and each branch is scored independently; trivial quote-obfuscation (`c""url`, `c''url`, `c\\url`) is neutralized before matching.
 - MCP tool invocations.
 - External network intent via `WebFetch` or `WebSearch`.
 - Subagent spawns via `Task`.
-- Broad home-directory scans via `Glob` or `Grep`.
+- Broad scans of user roots, filesystem root, and top-level data trees (`Documents`, `Downloads`, etc.) via `Glob` or `Grep`.
 
 ## Complements the Suite
 

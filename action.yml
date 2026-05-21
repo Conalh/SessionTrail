@@ -8,7 +8,7 @@ branding:
 
 inputs:
   transcript:
-    description: Path to a Cursor agent transcript JSONL file.
+    description: Path to a Cursor, Claude Code, or Codex transcript JSONL file.
     required: false
     default: ''
   transcript-dir:
@@ -37,6 +37,9 @@ outputs:
   unique-tool-count:
     description: Number of unique tools invoked in the session.
     value: ${{ steps.run.outputs.unique-tool-count }}
+  runtime-count:
+    description: Number of agent runtimes represented in the reviewed transcripts.
+    value: ${{ steps.run.outputs.runtime-count }}
 
 runs:
   using: composite
@@ -97,10 +100,12 @@ runs:
         finding_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).findingCount)" "$json_file")"
         tool_invocation_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).toolInvocationCount)" "$json_file")"
         unique_tool_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).uniqueToolCount)" "$json_file")"
+        runtime_count="$(node -e "const fs = require('node:fs'); const usage = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).runtimeUsage ?? {}; console.log(Object.values(usage).filter((count) => count > 0).length)" "$json_file")"
         echo "rating=$rating" >> "$GITHUB_OUTPUT"
         echo "finding-count=$finding_count" >> "$GITHUB_OUTPUT"
         echo "tool-invocation-count=$tool_invocation_count" >> "$GITHUB_OUTPUT"
         echo "unique-tool-count=$unique_tool_count" >> "$GITHUB_OUTPUT"
+        echo "runtime-count=$runtime_count" >> "$GITHUB_OUTPUT"
 
         rank() {
           case "$1" in

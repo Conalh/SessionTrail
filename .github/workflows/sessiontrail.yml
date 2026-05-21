@@ -14,6 +14,6 @@ jobs:
 
       - uses: ./
         with:
-          transcript: test/fixtures/rogue-session.jsonl
+          transcript-dir: test/fixtures
           repo: .
           fail-on: none

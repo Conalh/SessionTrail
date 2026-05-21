@@ -2,6 +2,7 @@ import {
   isBroadScanPath,
   isHomeDirectoryPath,
   isPathInsideRepo,
+  isPrivilegedPath,
   isTranscriptPath,
   normalizePath
 } from '../paths.js';
@@ -41,14 +42,24 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
       });
     }
 
-    if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
+    if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
+      findings.push({
+        kind: 'privileged_path_access',
+        severity: 'critical',
+        file: normalized,
+        line: event.line,
+        subject: 'Privileged path access',
+        message: 'Agent touched a credential, SSH, or system-config location outside the repository.',
+        recommendation: 'Treat this access as a potential credential leak; review the session immediately.'
+      });
+    } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
       findings.push({
         kind: 'home_directory_access',
         severity: 'high',
         file: normalized,
         line: event.line,
         subject: 'Home directory access',
-        message: 'Agent accessed a path under the user home or Cursor metadata directories.',
+        message: 'Agent accessed a path under the user home or an agent-metadata directory.',
         recommendation: 'Confirm the home-directory access was intentional and minimal.'
       });
     }
@@ -81,21 +92,56 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
   return findings;
 }
 
+// Risky-command verbs. Matched on the head of each chained subcommand
+// rather than anywhere in the raw string — so `echo curl-up` doesn't fire,
+// and obfuscated `c""url` does (we strip the quotes before matching).
+const RISKY_VERBS = new Set([
+  'curl', 'wget', 'invoke-webrequest', 'iwr',
+  'rm', 'remove-item',
+  'sudo', 'doas',
+  'chmod', 'chown', 'setfacl',
+  'kubectl', 'gcloud', 'aws', 'az',
+  'dd', 'mkfs', 'fdisk'
+]);
+
+const RISKY_PATTERNS: RegExp[] = [
+  /\bnpm\s+publish\b/i,
+  /\bgit\s+push\b/i,
+  /\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r\b/i,
+  /\bremove-item\b[^\n;|&]*\s-recurse/i,
+  /\bcurl\b[^|]*\|\s*(?:ba)?sh\b/i,
+  /\b(?:iwr|invoke-webrequest)\b[^|]*\|\s*(?:iex|invoke-expression)/i,
+];
+
 function detectShell(event: ToolEvent): Finding[] {
-  if (event.tool !== 'Shell') {
+  if (!isShellTool(event.tool)) {
     return [];
   }
 
   const command = typeof event.input.command === 'string' ? event.input.command : '';
-  const severity =
-    /\b(curl|wget|Invoke-WebRequest|npm publish|git push|rm -rf|Remove-Item.*-Recurse)\b/i.test(command)
-      ? 'high'
-      : 'medium';
+  if (!command.trim()) {
+    return [];
+  }
+
+  const subcommands = splitChainedCommands(command);
+  let highest: 'medium' | 'high' = 'medium';
+  for (const sub of subcommands) {
+    const stripped = stripShellObfuscation(sub);
+    if (RISKY_PATTERNS.some((pattern) => pattern.test(stripped))) {
+      highest = 'high';
+      break;
+    }
+    const head = stripped.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    if (RISKY_VERBS.has(head)) {
+      highest = 'high';
+      break;
+    }
+  }
 
   return [
     {
       kind: 'shell_command_invoked',
-      severity,
+      severity: highest,
       file: 'session',
       line: event.line,
       subject: 'Shell command',
@@ -105,8 +151,78 @@ function detectShell(event: ToolEvent): Finding[] {
   ];
 }
 
+// Split on shell chain operators ( ; | & && || ) while ignoring matches
+// inside quoted strings. Returns each individual subcommand as a string.
+function splitChainedCommands(command: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | '`' | null = null;
+  let escape = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+
+    if (escape) {
+      current += char;
+      escape = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      current += char;
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      current += char;
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    const next = command[index + 1];
+    if (char === ';' || (char === '|' && next !== '|') || (char === '&' && next !== '&')) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    if ((char === '|' && next === '|') || (char === '&' && next === '&')) {
+      parts.push(current);
+      current = '';
+      index += 1;
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    parts.push(current);
+  }
+
+  return parts;
+}
+
+// Neutralize common quote-stripping obfuscation: c""url, c''url, c\\url.
+// We're not trying to fully deobfuscate — just to make the simplest
+// dodges (which are also the most common in past adversary samples) fail.
+function stripShellObfuscation(command: string): string {
+  return command
+    .replace(/""/g, '')
+    .replace(/''/g, '')
+    .replace(/\\(.)/g, '$1');
+}
+
 function detectMcp(event: ToolEvent): Finding[] {
-  if (event.tool !== 'CallMcpTool') {
+  if (!isMcpTool(event.tool)) {
     return [];
   }
 
@@ -127,7 +243,7 @@ function detectMcp(event: ToolEvent): Finding[] {
 }
 
 function detectNetwork(event: ToolEvent): Finding[] {
-  if (event.tool !== 'WebFetch' && event.tool !== 'WebSearch') {
+  if (!isNetworkTool(event.tool)) {
     return [];
   }
 
@@ -152,7 +268,7 @@ function detectNetwork(event: ToolEvent): Finding[] {
 }
 
 function detectSubagent(event: ToolEvent): Finding[] {
-  if (event.tool !== 'Task') {
+  if (toolKey(event.tool) !== 'task') {
     return [];
   }
 
@@ -171,7 +287,7 @@ function detectSubagent(event: ToolEvent): Finding[] {
 }
 
 function detectBroadScan(event: ToolEvent): Finding[] {
-  if (event.tool !== 'Glob' && event.tool !== 'Grep') {
+  if (!isSearchTool(event.tool)) {
     return [];
   }
 
@@ -212,6 +328,7 @@ function collectEventPaths(event: ToolEvent): Array<{ path: string; kind: 'read'
     case 'Read':
     case 'ReadLints':
       add(input.path, 'read');
+      add(input.file_path, 'read');
       if (Array.isArray(input.paths)) {
         for (const path of input.paths) {
           add(path, 'read');
@@ -221,13 +338,25 @@ function collectEventPaths(event: ToolEvent): Array<{ path: string; kind: 'read'
     case 'Write':
     case 'StrReplace':
     case 'Delete':
+    case 'Edit':
+    case 'MultiEdit':
       add(input.path, 'write');
+      add(input.file_path, 'write');
       break;
     case 'Grep':
     case 'Glob':
       add(input.path ?? input.target_directory, 'read');
       break;
     default:
+      if (isShellTool(event.tool)) {
+        add(input.working_directory ?? input.workdir ?? input.cwd, 'read');
+      } else if (toolKey(event.tool) === 'view_image') {
+        add(input.path, 'read');
+      } else if (toolKey(event.tool) === 'apply_patch') {
+        for (const path of extractPatchPaths(input.patch)) {
+          add(path, 'write');
+        }
+      }
       break;
   }
 
@@ -256,4 +385,43 @@ function truncate(value: string, max: number): string {
   }
 
   return `${value.slice(0, max - 3)}...`;
+}
+
+function toolKey(tool: string): string {
+  return (tool.split('.').pop() ?? tool).toLowerCase();
+}
+
+function isShellTool(tool: string): boolean {
+  const key = toolKey(tool);
+  return key === 'shell' || key === 'bash' || key === 'shell_command';
+}
+
+function isMcpTool(tool: string): boolean {
+  const normalized = tool.toLowerCase();
+  return toolKey(tool) === 'callmcptool' || normalized.includes('mcp');
+}
+
+function isNetworkTool(tool: string): boolean {
+  const key = toolKey(tool);
+  const normalized = tool.toLowerCase();
+  return key === 'webfetch' || key === 'websearch' || normalized === 'web.run';
+}
+
+function isSearchTool(tool: string): boolean {
+  const key = toolKey(tool);
+  return key === 'grep' || key === 'glob';
+}
+
+function extractPatchPaths(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  const paths: string[] = [];
+  const pattern = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    paths.push(match[1].trim());
+  }
+  return paths;
 }

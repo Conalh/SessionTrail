@@ -1,4 +1,4 @@
-import type { Finding, PathAccess, Severity, ToolEvent } from './types.js';
+import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
 export type SessionRating = 'none' | Severity;
 export type ReportFormat = 'text' | 'markdown' | 'json' | 'github';
@@ -8,6 +8,7 @@ export interface SessionReport {
   findingCount: number;
   toolInvocationCount: number;
   uniqueToolCount: number;
+  runtimeUsage: Record<AgentRuntime, number>;
   behaviorSummary: string[];
   toolUsage: Record<string, number>;
   pathHeatMap: PathAccess[];
@@ -40,6 +41,7 @@ export function createReport(
     transcriptPath: string;
     repoRoot: string;
     events: ToolEvent[];
+    runtimeUsage: Record<AgentRuntime, number>;
     toolUsage: Record<string, number>;
     pathAccess: PathAccess[];
   }
@@ -49,6 +51,7 @@ export function createReport(
     findingCount: findings.length,
     toolInvocationCount: context.events.length,
     uniqueToolCount: Object.keys(context.toolUsage).length,
+    runtimeUsage: context.runtimeUsage,
     behaviorSummary: buildBehaviorSummary(findings, context.toolUsage),
     toolUsage: context.toolUsage,
     pathHeatMap: context.pathAccess,
@@ -105,14 +108,15 @@ function rateFindings(findings: Finding[]): SessionRating {
 function renderMarkdown(report: SessionReport): string {
   const lines = [`# SessionTrail behavior review: ${report.rating.toUpperCase()}`, ''];
 
+  lines.push(`Tool invocations: ${report.toolInvocationCount}`);
+  lines.push(`Unique tools: ${report.uniqueToolCount}`);
+  lines.push(`Agent runtimes: ${formatRuntimeUsage(report.runtimeUsage)}`);
+  lines.push(`Findings: ${report.findingCount}`, '');
+
   if (report.findings.length === 0) {
     lines.push('No session behavior findings.');
     return `${lines.join('\n')}\n`;
   }
-
-  lines.push(`Tool invocations: ${report.toolInvocationCount}`);
-  lines.push(`Unique tools: ${report.uniqueToolCount}`);
-  lines.push(`Findings: ${report.findingCount}`, '');
 
   if (report.behaviorSummary.length > 0) {
     lines.push('## Behavior summary', '');
@@ -149,6 +153,7 @@ function renderMarkdown(report: SessionReport): string {
 
 function renderText(report: SessionReport): string {
   const lines = [`SessionTrail behavior review: ${report.rating.toUpperCase()}`];
+  lines.push(`Agent runtimes: ${formatRuntimeUsage(report.runtimeUsage)}`);
   if (report.behaviorSummary.length > 0) {
     lines.push(`Summary: ${report.behaviorSummary.join('; ')}`);
   }
@@ -195,4 +200,13 @@ function escapeProperty(value: string): string {
 
 function capitalize(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function formatRuntimeUsage(runtimeUsage: Record<AgentRuntime, number>): string {
+  const entries = Object.entries(runtimeUsage).filter(([, count]) => count > 0);
+  if (entries.length === 0) {
+    return 'none';
+  }
+
+  return entries.map(([runtime, count]) => `${runtime} x${count}`).join(', ');
 }

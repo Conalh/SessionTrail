@@ -20,6 +20,7 @@ export async function runSessionAudit(options: AuditInput): Promise<SessionRepor
     transcriptPath,
     repoRoot: options.repoRoot,
     events,
+    runtimeUsage: summary.runtimeUsage,
     toolUsage: summary.toolUsage,
     pathAccess: summary.pathAccess
   });

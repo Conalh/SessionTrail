@@ -58,6 +58,20 @@ test('CLI emits Markdown behavior summary and heat map', async () => {
   assert.match(stdout, /Path heat map/);
 });
 
+test('CLI emits Markdown runtime summary when no findings are present', async () => {
+  const transcript = join(testDir, 'fixtures', 'benign-session.jsonl');
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'audit', '--transcript', transcript, '--repo', REPO, '--format', 'markdown'],
+    { cwd: packageRoot }
+  );
+
+  assert.match(stdout, /# SessionTrail behavior review: NONE/);
+  assert.match(stdout, /Agent runtimes: cursor x3/);
+  assert.match(stdout, /No session behavior findings\./);
+});
+
 test('CLI emits GitHub warning annotations', async () => {
   const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
 
