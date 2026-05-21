@@ -142,15 +142,17 @@ SessionTrail v0 detects:
 - Subagent spawns via `Task`.
 - Broad scans of user roots, filesystem root, and top-level data trees (`Documents`, `Downloads`, etc.) via `Glob` or `Grep`.
 
-## Complements the Suite
+## Part of an AI-agent governance suite
 
-Use SessionTrail with the other agent governance tools:
+Five tools mapping orthogonal failure modes of AI-agent deployment:
 
-- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — did agent permissions **change** in this PR?
-- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — do agent surfaces **agree** in this repo right now?
-- **[CapabilityEcho](https://github.com/Conalh/CapabilityEcho)** — did the **code or workflow diff** introduce new capability signals?
-- **[TaskBound](https://github.com/Conalh/TaskBound)** — did the edits stay within the **stated task**?
-- **SessionTrail** — what did the agent **actually try to do** during the session?
+- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — config drift over time (PR-level).
+- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — policy contradictions across agent surfaces.
+- **[CapabilityEcho](https://github.com/Conalh/CapabilityEcho)** — capability drift via code, not config.
+- **[TaskBound](https://github.com/Conalh/TaskBound)** — scope creep after the agent runs.
+- **SessionTrail** *(this repo)* — runtime behavior review across agent session transcripts.
+
+ScopeTrail, PolicyMesh, and CapabilityEcho are preventive (static analysis of config and code). SessionTrail is runtime (in-session transcript review). TaskBound is detective (stated task vs. actual diff).
 
 ## Feedback Wanted
 
