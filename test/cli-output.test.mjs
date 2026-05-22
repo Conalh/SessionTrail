@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { readFile, rm, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -74,6 +76,40 @@ test('CLI emits Markdown runtime summary when no findings are present', async ()
   assert.match(stdout, /No session behavior findings\./);
 });
 
+test('CLI emits stdout, JSON file, and Markdown file in a single pass', async () => {
+  const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
+  const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-cli-'));
+  const jsonPath = join(tempDir, 'report.json');
+  const mdPath = join(tempDir, 'report.md');
+
+  try {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        'dist/index.js', 'audit',
+        '--transcript', transcript,
+        '--repo', REPO,
+        '--format', 'github',
+        '--json-out', jsonPath,
+        '--markdown-out', mdPath
+      ],
+      { cwd: packageRoot }
+    );
+
+    // stdout still carries the --format output (GitHub annotations here).
+    assert.match(stdout, /::warning file=/);
+
+    const jsonReport = JSON.parse(await readFile(jsonPath, 'utf8'));
+    assert.equal(jsonReport.rating, 'critical');
+
+    const markdownReport = await readFile(mdPath, 'utf8');
+    assert.match(markdownReport, /# SessionTrail behavior review: CRITICAL/);
+    assert.match(markdownReport, /Behavior summary/);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('CLI rejects --repo with no value instead of crashing', async () => {
   const transcript = join(testDir, 'fixtures', 'benign-session.jsonl');
 
@@ -92,7 +128,7 @@ test('CLI rejects --repo with no value instead of crashing', async () => {
   );
 });
 
-test('CLI emits GitHub warning annotations', async () => {
+test('CLI emits GitHub warning annotations anchored at the transcript file', async () => {
   const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
 
   const { stdout } = await execFileAsync(
@@ -101,6 +137,11 @@ test('CLI emits GitHub warning annotations', async () => {
     { cwd: packageRoot }
   );
 
-  assert.match(stdout, /::warning file=session,line=/);
-  assert.match(stdout, /outside-repo\.txt/);
+  // Annotations anchor at the transcript file/line (a real, locatable
+  // path) — the accessed target lives in the message body. The earlier
+  // behavior anchored at literal 'session' or at out-of-workspace paths,
+  // which GitHub couldn't attach to anything useful.
+  assert.match(stdout, /::warning file=[^,]*rogue-session\.jsonl,line=\d+/);
+  assert.doesNotMatch(stdout, /::warning file=session,/);
+  assert.match(stdout, /target: C:\/Users\/conno\/outside-repo\.txt/);
 });

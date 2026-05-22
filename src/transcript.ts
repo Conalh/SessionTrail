@@ -31,7 +31,7 @@ interface CodexResponseItem {
 
 export async function loadTranscriptEvents(transcriptPath: string): Promise<ToolEvent[]> {
   const raw = await readFile(transcriptPath, 'utf8');
-  return parseTranscriptEvents(raw);
+  return parseTranscriptEvents(raw, transcriptPath);
 }
 
 export async function loadTranscriptDirectory(directory: string): Promise<ToolEvent[]> {
@@ -45,7 +45,7 @@ export async function loadTranscriptDirectory(directory: string): Promise<ToolEv
   return events;
 }
 
-export function parseTranscriptEvents(raw: string): ToolEvent[] {
+export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[] {
   const events: ToolEvent[] = [];
   let turn = 0;
   let sessionRuntime: AgentRuntime = 'unknown';
@@ -67,7 +67,7 @@ export function parseTranscriptEvents(raw: string): ToolEvent[] {
       continue;
     }
 
-    const codexEvent = parseCodexFunctionCall(parsed as CodexResponseItem, index + 1, turn);
+    const codexEvent = parseCodexFunctionCall(parsed as CodexResponseItem, index + 1, turn, source);
     if (codexEvent) {
       events.push(codexEvent);
       continue;
@@ -90,7 +90,8 @@ export function parseTranscriptEvents(raw: string): ToolEvent[] {
         runtime,
         line: index + 1,
         turn,
-        input: block.input ?? {}
+        input: block.input ?? {},
+        source
       });
     }
   }
@@ -157,7 +158,12 @@ function isCodexSessionMeta(parsed: TranscriptMessage): boolean {
   return payload?.originator === 'codex-tui' || payload?.source === 'cli';
 }
 
-function parseCodexFunctionCall(parsed: CodexResponseItem, line: number, turn: number): ToolEvent | undefined {
+function parseCodexFunctionCall(
+  parsed: CodexResponseItem,
+  line: number,
+  turn: number,
+  source: string | undefined
+): ToolEvent | undefined {
   if (parsed.type !== 'response_item' || parsed.payload?.type !== 'function_call' || !parsed.payload.name) {
     return undefined;
   }
@@ -167,7 +173,8 @@ function parseCodexFunctionCall(parsed: CodexResponseItem, line: number, turn: n
     runtime: 'codex',
     line,
     turn,
-    input: parseCodexArguments(parsed.payload.arguments)
+    input: parseCodexArguments(parsed.payload.arguments),
+    source
   };
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runSessionAudit } from './audit.js';
 import { renderReport, type ReportFormat } from './report.js';
@@ -30,13 +31,28 @@ async function runAuditCommand(argv: string[]): Promise<number> {
       ? await runSessionAudit({ mode: 'transcript', transcriptPath: parsed.transcriptPath, repoRoot: parsed.repoRoot })
       : await runSessionAudit({ mode: 'directory', transcriptDir: parsed.transcriptDir, repoRoot: parsed.repoRoot });
 
+  // Side outputs land in files; the chosen --format still goes to stdout
+  // so consumers like the GitHub Action can stream annotations directly.
+  if (parsed.jsonOut) {
+    await writeFile(parsed.jsonOut, renderReport(report, 'json'));
+  }
+  if (parsed.markdownOut) {
+    await writeFile(parsed.markdownOut, renderReport(report, 'markdown'));
+  }
+
   process.stdout.write(renderReport(report, parsed.format));
   return 0;
 }
 
+interface AuditFlags {
+  format: ReportFormat;
+  jsonOut?: string;
+  markdownOut?: string;
+}
+
 type ParsedAuditArgs =
-  | { ok: true; mode: 'transcript'; transcriptPath: string; repoRoot: string; format: ReportFormat }
-  | { ok: true; mode: 'directory'; transcriptDir: string; repoRoot: string; format: ReportFormat }
+  | ({ ok: true; mode: 'transcript'; transcriptPath: string; repoRoot: string } & AuditFlags)
+  | ({ ok: true; mode: 'directory'; transcriptDir: string; repoRoot: string } & AuditFlags)
   | { ok: false; error: string };
 
 function parseAuditArgs(argv: string[]): ParsedAuditArgs {
@@ -44,6 +60,8 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   let transcriptDir: string | undefined;
   let repoRoot = process.cwd();
   let format: ReportFormat = 'text';
+  let jsonOut: string | undefined;
+  let markdownOut: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -73,6 +91,18 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
       }
       format = value;
       index += 1;
+    } else if (arg === '--json-out') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --json-out.' };
+      }
+      jsonOut = value;
+      index += 1;
+    } else if (arg === '--markdown-out') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --markdown-out.' };
+      }
+      markdownOut = value;
+      index += 1;
     } else {
       return { ok: false, error: `Unknown argument: ${arg}` };
     }
@@ -83,14 +113,14 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   }
 
   if (transcriptDir) {
-    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format };
+    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut };
   }
 
   if (!transcriptPath) {
     return { ok: false, error: 'Missing required --transcript <path> or --transcript-dir <dir> argument.' };
   }
 
-  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format };
+  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
@@ -106,7 +136,12 @@ if (invokedPath) {
 function usage(): string {
   return [
     'Usage:',
-    '  sessiontrail audit --transcript <path> --repo <path> [--format text|markdown|json|github]',
-    '  sessiontrail audit --transcript-dir <dir> --repo <path> [--format text|markdown|json|github]'
+    '  sessiontrail audit --transcript <path> --repo <path> [options]',
+    '  sessiontrail audit --transcript-dir <dir> --repo <path> [options]',
+    '',
+    'Options:',
+    '  --format text|markdown|json|github   Format for stdout (default: text)',
+    '  --json-out <path>                    Also write JSON report to <path>',
+    '  --markdown-out <path>                Also write Markdown report to <path>'
   ].join('\n');
 }

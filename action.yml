@@ -82,15 +82,24 @@ runs:
         report_file="${RUNNER_TEMP:-.}/sessiontrail-report.md"
         json_file="${RUNNER_TEMP:-.}/sessiontrail-report.json"
 
+        # One audit pass emits GitHub annotations to stdout and the JSON
+        # and Markdown reports straight to files. Earlier versions ran
+        # three separate audits which parsed the transcripts each time.
         if [ -n "$transcript" ]; then
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format markdown | tee "$report_file"
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format json > "$json_file"
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript "$transcript" --repo "$repo" --format github
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit \
+            --transcript "$transcript" --repo "$repo" \
+            --format github \
+            --json-out "$json_file" \
+            --markdown-out "$report_file"
         else
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format markdown | tee "$report_file"
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format json > "$json_file"
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit --transcript-dir "$transcript_dir" --repo "$repo" --format github
+          node "$GITHUB_ACTION_PATH/dist/index.js" audit \
+            --transcript-dir "$transcript_dir" --repo "$repo" \
+            --format github \
+            --json-out "$json_file" \
+            --markdown-out "$report_file"
         fi
+
+        cat "$report_file"
 
         if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
           cat "$report_file" >> "$GITHUB_STEP_SUMMARY"

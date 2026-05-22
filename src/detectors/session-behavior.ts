@@ -14,12 +14,24 @@ export function detectSessionBehavior(repoRoot: string, events: ToolEvent[]): Fi
   const findings: Finding[] = [];
 
   for (const event of events) {
-    findings.push(...detectPathAccess(repoRoot, event));
-    findings.push(...detectShell(event));
-    findings.push(...detectMcp(event));
-    findings.push(...detectNetwork(event));
-    findings.push(...detectSubagent(event));
-    findings.push(...detectBroadScan(event));
+    const eventFindings = [
+      ...detectPathAccess(repoRoot, event),
+      ...detectShell(event),
+      ...detectMcp(event),
+      ...detectNetwork(event),
+      ...detectSubagent(event),
+      ...detectBroadScan(event)
+    ];
+
+    // Stamp the originating transcript on each finding so the GitHub
+    // renderer can anchor annotations at the transcript file/line.
+    // Done once here rather than in every detector branch.
+    for (const finding of eventFindings) {
+      if (event.source && !finding.source) {
+        finding.source = event.source;
+      }
+      findings.push(finding);
+    }
   }
 
   return dedupeFindings(findings);

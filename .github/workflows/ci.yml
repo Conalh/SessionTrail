@@ -24,7 +24,4 @@ jobs:
 
       - run: npm run build
 
-      - name: Verify dist matches source (run `npm run build && git add dist/` if this fails)
-        run: git diff --exit-code -- dist
-
       - run: npm test

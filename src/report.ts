@@ -181,9 +181,20 @@ function renderGithubAnnotations(report: SessionReport): string {
   return (
     report.findings
       .map((finding) => {
+        // Prefer the transcript anchor: the finding's `file` is often the
+        // accessed target (`/home/u/.ssh/id_rsa`) or literal 'session',
+        // neither of which exists in the workspace. The transcript usually
+        // doesn't either, but it's at least a real path with a meaningful
+        // line number, and putting the accessed target in the message body
+        // keeps the information without misrepresenting the anchor.
+        const anchorFile = finding.source ?? finding.file;
         const title = `SessionTrail ${finding.severity} behavior finding`;
-        const message = `${finding.message} Recommendation: ${finding.recommendation}`;
-        const properties = [`file=${escapeProperty(finding.file)}`];
+        const subjectSuffix =
+          finding.source && finding.file !== 'session' && finding.file !== finding.source
+            ? ` (target: ${finding.file})`
+            : '';
+        const message = `${finding.message}${subjectSuffix} Recommendation: ${finding.recommendation}`;
+        const properties = [`file=${escapeProperty(anchorFile)}`];
         if (finding.line && finding.line > 0) {
           properties.push(`line=${finding.line}`);
         }
