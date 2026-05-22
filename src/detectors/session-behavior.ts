@@ -33,7 +33,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
 
     if (isTranscriptPath(normalized)) {
       findings.push({
-        kind: 'transcript_cross_read',
+        kind: 'session_trail.transcript_cross_read',
         severity: 'medium',
         file: normalized,
         line: event.line,
@@ -45,7 +45,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
 
     if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
       findings.push({
-        kind: 'privileged_path_access',
+        kind: 'session_trail.privileged_path_access',
         severity: 'critical',
         file: normalized,
         line: event.line,
@@ -55,7 +55,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
       });
     } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
       findings.push({
-        kind: 'home_directory_access',
+        kind: 'session_trail.home_directory_access',
         severity: 'high',
         file: normalized,
         line: event.line,
@@ -68,7 +68,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
     if (!isPathInsideRepo(repoRoot, normalized)) {
       if (entry.kind === 'write') {
         findings.push({
-          kind: 'write_outside_repo',
+          kind: 'session_trail.write_outside_repo',
           severity: 'critical',
           file: normalized,
           line: event.line,
@@ -78,7 +78,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
         });
       } else {
         findings.push({
-          kind: 'read_outside_repo',
+          kind: 'session_trail.read_outside_repo',
           severity: 'medium',
           file: normalized,
           line: event.line,
@@ -144,7 +144,7 @@ function detectShell(event: ToolEvent): Finding[] {
 
   return [
     {
-      kind: 'shell_command_invoked',
+      kind: 'session_trail.shell_command_invoked',
       severity: highest,
       file: 'session',
       line: event.line,
@@ -165,7 +165,7 @@ function detectMcp(event: ToolEvent): Finding[] {
 
   return [
     {
-      kind: 'mcp_tool_invoked',
+      kind: 'session_trail.mcp_tool_invoked',
       severity: 'medium',
       file: 'session',
       line: event.line,
@@ -190,7 +190,7 @@ function detectNetwork(event: ToolEvent): Finding[] {
 
   return [
     {
-      kind: 'network_intent',
+      kind: 'session_trail.network_intent',
       severity: 'medium',
       file: 'session',
       line: event.line,
@@ -209,7 +209,7 @@ function detectSubagent(event: ToolEvent): Finding[] {
   const subagentType = typeof event.input.subagent_type === 'string' ? event.input.subagent_type : 'unknown';
   return [
     {
-      kind: 'subagent_spawned',
+      kind: 'session_trail.subagent_spawned',
       severity: 'low',
       file: 'session',
       line: event.line,
@@ -238,7 +238,7 @@ function detectBroadScan(event: ToolEvent): Finding[] {
 
   return [
     {
-      kind: 'broad_path_scan',
+      kind: 'session_trail.broad_path_scan',
       severity: 'high',
       file: scanPath ?? 'session',
       line: event.line,
