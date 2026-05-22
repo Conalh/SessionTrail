@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "bundle": "ncc build src/index.ts -o bundle --minify",
     "prepublishOnly": "npm run bundle",
+    "pretest": "npm run build",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

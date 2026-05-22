@@ -46,6 +46,34 @@ test('CLI flags rogue session behavior', async () => {
   assert.ok(report.pathHeatMap.length >= 3);
 });
 
+test('Markdown heat map shows (+N more) when truncated past 12 entries', async () => {
+  const { createReport, renderReport } = await import('../dist/report.js');
+  // Build a report with 20 distinct paths to exercise the truncation.
+  const pathAccess = Array.from({ length: 20 }, (_, i) => ({
+    path: `C:/Dev/Demo/file-${String(i).padStart(2, '0')}.ts`,
+    reads: 1,
+    writes: 0
+  }));
+  // Need at least one finding so the heat map section renders.
+  const findings = [{
+    tool: 'session_trail',
+    kind: 'session_trail.shell_command_invoked',
+    severity: 'low',
+    message: 'Shell command: pwd',
+    location: { file: 'fixture.jsonl', line: 1 }
+  }];
+  const report = createReport(findings, {
+    transcriptPath: 'fixture.jsonl',
+    repoRoot: REPO,
+    events: [],
+    runtimeUsage: { cursor: 0, 'claude-code': 0, codex: 0, unknown: 0 },
+    toolUsage: {},
+    pathAccess
+  });
+  const md = renderReport(report, 'markdown');
+  assert.match(md, /\(\+8 more\)/);
+});
+
 test('CLI emits Markdown behavior summary and heat map', async () => {
   const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
 

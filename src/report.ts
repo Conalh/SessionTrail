@@ -144,8 +144,12 @@ function renderMarkdown(report: SessionReport): string {
 
   if (report.pathHeatMap.length > 0) {
     lines.push('## Path heat map', '');
-    for (const entry of report.pathHeatMap.slice(0, 12)) {
+    const HEAT_MAP_LIMIT = 12;
+    for (const entry of report.pathHeatMap.slice(0, HEAT_MAP_LIMIT)) {
       lines.push(`- ${entry.path} (reads: ${entry.reads}, writes: ${entry.writes})`);
+    }
+    if (report.pathHeatMap.length > HEAT_MAP_LIMIT) {
+      lines.push(`- _(+${report.pathHeatMap.length - HEAT_MAP_LIMIT} more)_`);
     }
     lines.push('');
   }

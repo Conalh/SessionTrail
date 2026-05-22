@@ -67,10 +67,17 @@ Audit every JSONL file in a transcript directory:
 node dist/index.js audit --transcript-dir C:/Users/conno/.cursor/projects/c-Dev-Demo/agent-transcripts --repo C:/Dev/Demo --format json
 ```
 
+CLI options:
+
+- `--format text|markdown|json|github` — output written to stdout (default: `text`).
+- `--json-out <path>` — also write the JSON report to a file. Combine with `--format github` so the action streams annotations to stdout while side-outputting JSON.
+- `--markdown-out <path>` — also write the Markdown report to a file.
+- `--fail-on none|low|medium|high|critical` — exit 1 when the session rating meets or exceeds the threshold (default: `none`). Uses the same severity ladder as the GitHub Action.
+
 Supported transcript families:
 
 - Cursor-style JSONL with assistant `tool_use` blocks.
-- Claude Code JSONL with assistant `tool_use` blocks and `file_path` inputs.
+- Claude Code JSONL with assistant `tool_use` blocks and `file_path` inputs. Per-message `cwd` is used to resolve relative paths.
 - Codex JSONL with `response_item` function calls and JSON or freeform tool arguments.
 
 ## GitHub Action
