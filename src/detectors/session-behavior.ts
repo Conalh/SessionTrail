@@ -7,7 +7,7 @@ import {
   isTranscriptPath,
   normalizePath
 } from '../paths.js';
-import { collectEventPaths, isShellTool, toolKey } from '../tool-paths.js';
+import { collectEventPaths, extractShellPaths, isShellTool, toolKey } from '../tool-paths.js';
 import type { Finding, ToolEvent } from '../types.js';
 
 export function detectSessionBehavior(repoRoot: string, events: ToolEvent[]): Finding[] {
@@ -114,6 +114,58 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
     }
   }
 
+  // Shell command path extraction. We don't route shell-extracted paths
+  // through the full read/write-outside-repo flow because absolute paths
+  // are pervasive in shell (/bin/bash, /usr/bin/curl, /tmp/script.js)
+  // and flagging every one as out-of-repo would flood the report. We do
+  // still check them against the high-signal categories — privileged
+  // credential dirs, home metadata dirs, and cross-session transcript
+  // reads — which is where shell-based exfiltration actually lives.
+  if (isShellTool(event.tool)) {
+    const command = typeof event.input.command === 'string' ? event.input.command : '';
+    for (const candidate of extractShellPaths(command)) {
+      const normalized = normalizePath(candidate);
+
+      if (isTranscriptPath(normalized)) {
+        findings.push(createFinding({
+          tool: 'session_trail',
+          name: 'transcript_cross_read',
+          severity: 'medium',
+          message: 'Cross-session transcript read via shell command.',
+          detail: 'Review whether cross-session transcript access was necessary.',
+          location: { file: event.source ?? 'session', line: event.line },
+          data: { target: normalized, viaShell: true },
+          salientKey: normalized
+        }));
+        continue;
+      }
+
+      if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized, event.cwd)) {
+        findings.push(createFinding({
+          tool: 'session_trail',
+          name: 'privileged_path_access',
+          severity: 'critical',
+          message: 'Privileged path referenced in shell command (credential, SSH, or system-config location).',
+          detail: 'Treat this as a potential credential leak; review the shell command immediately.',
+          location: { file: event.source ?? 'session', line: event.line },
+          data: { target: normalized, viaShell: true },
+          salientKey: normalized
+        }));
+      } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized, event.cwd)) {
+        findings.push(createFinding({
+          tool: 'session_trail',
+          name: 'home_directory_access',
+          severity: 'high',
+          message: 'Home or agent-metadata path referenced in shell command.',
+          detail: 'Confirm the home-directory access was intentional and minimal.',
+          location: { file: event.source ?? 'session', line: event.line },
+          data: { target: normalized, viaShell: true },
+          salientKey: normalized
+        }));
+      }
+    }
+  }
+
   return findings;
 }
 
@@ -138,6 +190,26 @@ const RISKY_PATTERNS: RegExp[] = [
   /\b(?:iwr|invoke-webrequest)\b[^|]*\|\s*(?:iex|invoke-expression)/i,
 ];
 
+// Quiet, side-effect-free repo introspection that's nearly always noise
+// in audits. Downgrading from medium → low keeps them visible in the
+// step summary without tripping --fail-on at low/medium thresholds.
+// Conservative on purpose: anything with side effects (install, build,
+// run) or anything that could exfiltrate (cat, ls, echo of secrets)
+// stays at medium. The shell path-extraction pass above still catches
+// credential exfiltration if any of these are misused with privileged
+// arguments — benign verb doesn't whitelist a privileged target.
+const BENIGN_PATTERNS: RegExp[] = [
+  /^npm\s+(?:test|version|outdated|view|info|list|ls|root)\b/i,
+  /^(?:yarn|pnpm)\s+(?:test|version|info|why|list|ls)\b/i,
+  /^git\s+(?:status|log|diff|show|branch|tag|fetch|pull|remote|config\s+--get|rev-parse)\b/i,
+  /^(?:pwd|whoami|id|uname|hostname|date|tty|which|where)\b/i,
+];
+
+function isBenignCommand(sub: string): boolean {
+  const trimmed = sub.trim();
+  return BENIGN_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
 function detectShell(event: ToolEvent): Finding[] {
   if (!isShellTool(event.tool)) {
     return [];
@@ -149,27 +221,33 @@ function detectShell(event: ToolEvent): Finding[] {
   }
 
   const subcommands = tokenizeShell(command);
-  let highest: 'medium' | 'high' = 'medium';
+  // Severity climbs: low (all benign) → medium (any non-benign) → high
+  // (anything risky). A single risky branch in a chain wins; a chain
+  // that's entirely benign drops below medium.
+  let severity: 'low' | 'medium' | 'high' = 'low';
   for (const sub of subcommands) {
     // RISKY_PATTERNS still operates on the raw subcommand text because the
     // patterns describe shapes like `curl ... | sh` that survive light
     // obfuscation without explicit normalization. getCommandHead handles
     // the verb-level obfuscation (c""url, c\url, sudo/env wrappers).
     if (RISKY_PATTERNS.some((pattern) => pattern.test(sub))) {
-      highest = 'high';
+      severity = 'high';
       break;
     }
     const head = getCommandHead(sub).toLowerCase();
     if (RISKY_VERBS.has(head)) {
-      highest = 'high';
+      severity = 'high';
       break;
+    }
+    if (severity === 'low' && !isBenignCommand(sub)) {
+      severity = 'medium';
     }
   }
 
   return [createFinding({
     tool: 'session_trail',
     name: 'shell_command_invoked',
-    severity: highest,
+    severity,
     message: `Shell command: ${truncate(command, 120)}`,
     detail: 'Review shell commands for scope and trust boundaries.',
     location: { file: event.source ?? 'session', line: event.line },

@@ -30,6 +30,44 @@ export function extractPatchPaths(value: unknown): string[] {
   return paths;
 }
 
+// High-signal path candidates inside a shell command string. Conservative
+// on purpose — false positives would create a noisy out-of-repo finding
+// for every random shell-arg-shaped word. We only match shapes that are
+// almost certainly file paths:
+//   - tilde-rooted: ~/foo, ~bar/baz
+//   - Windows-absolute: C:\foo or C:/foo
+//   - POSIX-absolute: /etc/foo, /home/u/x (also /var, /private, /Users…)
+//   - dotfile-rooted: .ssh/id_rsa, .aws/credentials (key credential dirs)
+// Bare relative tokens like `package.json` are NOT extracted — we have no
+// way to distinguish them from non-path arguments without false positives.
+const SHELL_PATH_CANDIDATES = [
+  /(?:^|[\s'"`=()|&;<>])(~[\w./-]*)/g,
+  /(?:^|[\s'"`=()|&;<>])([a-z]:[\\/][\w.\\/-]+)/gi,
+  /(?:^|[\s'"`=()|&;<>])(\/[\w./-]+)/g,
+  /(?:^|[\s'"`=()|&;<>])(\.(?:ssh|aws|gnupg|kube|docker|netrc)(?:[\\/][\w./-]+)?)/gi
+];
+
+export function extractShellPaths(command: string): string[] {
+  if (!command) {
+    return [];
+  }
+
+  const found = new Set<string>();
+  for (const pattern of SHELL_PATH_CANDIDATES) {
+    // Each pattern keeps its own lastIndex; defensive reset before reuse.
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(command)) !== null) {
+      // Strip trailing punctuation that shell-quoted args drag along.
+      const cleaned = match[1].replace(/[)>,;|&'"`]+$/, '');
+      if (cleaned) {
+        found.add(cleaned);
+      }
+    }
+  }
+  return [...found];
+}
+
 // Pulls every path the tool event touched, tagged read vs write.
 // Returns raw strings — callers decide whether to normalize (transcript.ts
 // uses normalized paths as Map keys, the detector hands them to path

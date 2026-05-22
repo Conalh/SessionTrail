@@ -99,6 +99,96 @@ test('isBroadScanPath catches filesystem root, user home root, and top-level dat
   assert.equal(isBroadScanPath(undefined), false);
 });
 
+test('shell command referencing a privileged path emits a critical finding', () => {
+  // `cat /home/u/.ssh/id_rsa` used to slip past the path-access detector
+  // because shell tool inputs only carry a command string, not a path.
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'cat /home/conno/.ssh/id_ed25519 | base64' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const priv = findings.find((f) => f.kind === 'session_trail.privileged_path_access');
+  assert.ok(priv, 'expected privileged_path_access finding from shell command');
+  assert.equal(priv.severity, 'critical');
+  assert.equal(priv.data.viaShell, true);
+});
+
+test('shell command referencing a tilde path emits a home-directory finding', () => {
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'tar -czf /tmp/exfil.tgz ~/.aws' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  // ~/.aws hits the privileged check first (.aws is in dot-segments).
+  assert.ok(findings.some((f) => f.kind === 'session_trail.privileged_path_access'));
+});
+
+test('shell extraction does not flag innocuous absolute paths like /bin/bash', () => {
+  // /bin/bash is absolute and outside the repo, but it's not privileged
+  // and not a home path. Flooding the report with one finding per binary
+  // invocation would drown the real signals.
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: '/bin/bash -c "node /tmp/script.js"' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const shellFindings = findings.filter((f) => f.kind !== 'session_trail.shell_command_invoked');
+  assert.equal(shellFindings.length, 0, `expected no path findings, got ${JSON.stringify(shellFindings.map(f => f.kind))}`);
+});
+
+test('benign shell commands downgrade to low severity', () => {
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'git status && npm test' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const shell = findings.find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.ok(shell);
+  assert.equal(shell.severity, 'low', `expected low severity for benign command, got ${shell.severity}`);
+});
+
+test('shell with one benign and one non-benign branch stays at medium', () => {
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'git status && node build.js' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const shell = findings.find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.ok(shell);
+  assert.equal(shell.severity, 'medium');
+});
+
+test('benign verb with risky args still flags risky', () => {
+  // `npm publish` is in RISKY_PATTERNS; the benign-verb downgrade must
+  // not whitelist it.
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'git status && npm publish' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const shell = findings.find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.ok(shell);
+  assert.equal(shell.severity, 'high');
+});
+
 test('shell detector splits chained commands and flags the risky branch', () => {
   const event = {
     tool: 'Shell',
