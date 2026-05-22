@@ -38,9 +38,9 @@ test('CLI flags rogue session behavior', async () => {
   assert.equal(report.rating, 'critical');
   assert.ok(report.findingCount >= 6);
   assert.ok(report.behaviorSummary.length >= 4);
-  assert.ok(report.findings.some((finding) => finding.kind === 'write_outside_repo'));
-  assert.ok(report.findings.some((finding) => finding.kind === 'shell_command_invoked'));
-  assert.ok(report.findings.some((finding) => finding.kind === 'transcript_cross_read'));
+  assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.write_outside_repo'));
+  assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.shell_command_invoked'));
+  assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.transcript_cross_read'));
   assert.ok(report.pathHeatMap.length >= 3);
 });
 
