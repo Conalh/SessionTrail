@@ -63,7 +63,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
       }));
     }
 
-    if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
+    if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized, event.cwd)) {
       findings.push(createFinding({
         tool: 'session_trail',
         name: 'privileged_path_access',
@@ -74,7 +74,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
         data: { target: normalized },
         salientKey: normalized
       }));
-    } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
+    } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized, event.cwd)) {
       findings.push(createFinding({
         tool: 'session_trail',
         name: 'home_directory_access',
@@ -87,7 +87,7 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
       }));
     }
 
-    if (!isPathInsideRepo(repoRoot, normalized)) {
+    if (!isPathInsideRepo(repoRoot, normalized, event.cwd)) {
       if (entry.kind === 'write') {
         findings.push(createFinding({
           tool: 'session_trail',

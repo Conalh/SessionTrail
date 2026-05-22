@@ -5,10 +5,19 @@ export function normalizePath(value: string): string {
 }
 
 export function normalizeRepoRoot(repoRoot: string): string {
+  // Same cross-OS hazard as in isPathInsideRepo: posix.resolve('C:/...')
+  // on Linux and win32.resolve('/foo') on Windows both produce nonsense
+  // by interpreting an absolute path from one namespace as relative in
+  // the other. Skip resolve for absolute-looking roots so a POSIX repo
+  // root from a Linux runner survives unchanged on a Windows test host
+  // (and vice versa).
+  if (isAbsolutePath(repoRoot)) {
+    return normalizePath(repoRoot).replace(/\/$/, '');
+  }
   return normalizePath(resolve(repoRoot)).replace(/\/$/, '');
 }
 
-export function isPathInsideRepo(repoRoot: string, targetPath: string): boolean {
+export function isPathInsideRepo(repoRoot: string, targetPath: string, agentCwd?: string): boolean {
   // Unexpanded `~` and `~/...` refer to the user home directory. Node's
   // path.resolve doesn't expand them — it just tucks them under cwd. When
   // the action runs with `repo: .`, cwd IS the repo, so without this
@@ -27,9 +36,22 @@ export function isPathInsideRepo(repoRoot: string, targetPath: string): boolean 
   // Compare the path as-given instead.
   const normalizedTarget = isAbsolutePath(targetPath)
     ? normalizePath(targetPath).toLowerCase().replace(/\/$/, '')
-    : normalizePath(resolve(targetPath)).toLowerCase();
+    : resolveRelativeTarget(targetPath, agentCwd);
 
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+}
+
+// Resolve a relative target. When the agent's recorded cwd is available
+// (Claude Code stores it per-message), prefer that over the audit CLI's
+// process.cwd — `package.json` in a transcript means the agent's
+// package.json, not whatever happens to be next to the CLI invocation.
+function resolveRelativeTarget(targetPath: string, agentCwd: string | undefined): string {
+  if (agentCwd && isAbsolutePath(agentCwd)) {
+    const cwd = normalizePath(agentCwd).replace(/\/$/, '');
+    const tail = normalizePath(targetPath).replace(/^\.\//, '');
+    return `${cwd}/${tail}`.toLowerCase();
+  }
+  return normalizePath(resolve(targetPath)).toLowerCase();
 }
 
 function isUnexpandedHomePath(value: string): boolean {

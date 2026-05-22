@@ -39,6 +39,39 @@ test('isPathInsideRepo rejects unexpanded ~ paths even when cwd is inside the re
   assert.equal(isPathInsideRepo(process.cwd(), '~/.ssh/id_rsa'), false);
 });
 
+test('isPathInsideRepo uses agent cwd when resolving relative paths', () => {
+  // Agent was working in /home/user/myproject and read a relative `package.json`.
+  // The audit is run against a different mount point — without agent cwd we'd
+  // resolve relative to the audit CLI's cwd and (mis)classify based on that.
+  assert.equal(
+    isPathInsideRepo('/workspace/myproject', 'package.json', '/home/user/myproject'),
+    false
+  );
+  assert.equal(
+    isPathInsideRepo('/home/user/myproject', 'package.json', '/home/user/myproject'),
+    true
+  );
+  // ./prefix should normalize away.
+  assert.equal(
+    isPathInsideRepo('/home/user/myproject', './src/index.ts', '/home/user/myproject'),
+    true
+  );
+  // Absolute targets ignore agent cwd and use the path as-given.
+  assert.equal(
+    isPathInsideRepo('/workspace/myproject', '/home/user/myproject/file.ts', '/home/user/myproject'),
+    false
+  );
+});
+
+test('isPathInsideRepo falls back to process.cwd() when agent cwd is missing', () => {
+  // No agent cwd → relative target resolves against the audit CLI's cwd,
+  // which is the package root during `npm test`. That root is not inside
+  // C:/Other so the target lands outside.
+  assert.equal(isPathInsideRepo('C:/Other/repo', 'package.json'), false);
+  // Same call with agentCwd = the audit cwd → still outside C:/Other/repo.
+  assert.equal(isPathInsideRepo('C:/Other/repo', 'package.json', process.cwd()), false);
+});
+
 test('isPathInsideRepo treats Windows-absolute targets correctly against POSIX repo roots', () => {
   // Simulates the GitHub Action running on Ubuntu against a transcript
   // recorded on Windows. Without the absolute-path short-circuit,
@@ -120,6 +153,27 @@ test('privileged path access emits its own critical finding', () => {
   const priv = findings.find((finding) => finding.kind === 'session_trail.privileged_path_access');
   assert.ok(priv);
   assert.equal(priv.severity, 'critical');
+});
+
+test('detector uses event.cwd to resolve relative paths', () => {
+  // Same relative path emits different findings depending on where the
+  // agent actually was — agent cwd inside the audit repo: no finding;
+  // agent cwd outside: out-of-repo read.
+  const baseEvent = {
+    tool: 'Read',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { file_path: 'config/settings.json' }
+  };
+  const insideCwd = { ...baseEvent, cwd: 'C:/Dev/Demo' };
+  const outsideCwd = { ...baseEvent, cwd: 'C:/Users/conno/elsewhere' };
+
+  const insideFindings = detectSessionBehavior('C:/Dev/Demo', [insideCwd]);
+  assert.ok(!insideFindings.some((f) => f.kind === 'session_trail.read_outside_repo'));
+
+  const outsideFindings = detectSessionBehavior('C:/Dev/Demo', [outsideCwd]);
+  assert.ok(outsideFindings.some((f) => f.kind === 'session_trail.read_outside_repo'));
 });
 
 test('findings carry agent-gov-core shape: tool, kind, data.target, fingerprint', () => {

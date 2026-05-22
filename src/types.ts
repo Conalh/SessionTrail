@@ -13,6 +13,12 @@ export interface ToolEvent {
   turn: number;
   input: Record<string, unknown>;
   source?: string;
+  // The agent's recorded working directory at the time of this event.
+  // Claude Code transcripts carry this per-message; older Cursor and
+  // Codex transcripts may not. When present, the detector uses it as
+  // the base for resolving relative paths so a relative `package.json`
+  // is judged from the agent's cwd rather than the audit CLI's cwd.
+  cwd?: string;
 }
 
 export interface PathAccess {

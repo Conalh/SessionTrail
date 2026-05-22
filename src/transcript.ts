@@ -79,6 +79,7 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
       turn += 1;
     }
 
+    const eventCwd = typeof parsed.cwd === 'string' && parsed.cwd ? parsed.cwd : undefined;
     const blocks = parsed.message?.content ?? [];
     for (const block of blocks) {
       if (block.type !== 'tool_use' || !block.name) {
@@ -91,7 +92,8 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
         line: index + 1,
         turn,
         input: block.input ?? {},
-        source
+        source,
+        cwd: eventCwd
       });
     }
   }
