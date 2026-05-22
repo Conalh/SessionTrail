@@ -11,7 +11,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "agent-gov-core": "^0.3.1"
+    "agent-gov-core": "^0.4.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
