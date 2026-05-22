@@ -44,6 +44,9 @@ async function runAuditCommand(argv: string[]): Promise<number> {
   if (parsed.markdownOut) {
     await writeFile(parsed.markdownOut, renderReport(report, 'markdown'));
   }
+  if (parsed.sarifOut) {
+    await writeFile(parsed.sarifOut, renderReport(report, 'sarif'));
+  }
 
   process.stdout.write(renderReport(report, parsed.format));
 
@@ -66,6 +69,7 @@ interface AuditFlags {
   format: ReportFormat;
   jsonOut?: string;
   markdownOut?: string;
+  sarifOut?: string;
   failOn: FailOn;
 }
 
@@ -81,6 +85,7 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   let format: ReportFormat = 'text';
   let jsonOut: string | undefined;
   let markdownOut: string | undefined;
+  let sarifOut: string | undefined;
   let failOn: FailOn = 'none';
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -123,6 +128,12 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
       }
       markdownOut = value;
       index += 1;
+    } else if (arg === '--sarif-out') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --sarif-out.' };
+      }
+      sarifOut = value;
+      index += 1;
     } else if (arg === '--fail-on') {
       if (!isFailOn(value)) {
         return { ok: false, error: `Invalid fail-on value: ${value ?? ''}. Use none, low, medium, high, or critical.` };
@@ -139,18 +150,24 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   }
 
   if (transcriptDir) {
-    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut, failOn };
+    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut, sarifOut, failOn };
   }
 
   if (!transcriptPath) {
     return { ok: false, error: 'Missing required --transcript <path> or --transcript-dir <dir> argument.' };
   }
 
-  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut, failOn };
+  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut, sarifOut, failOn };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
-  return value === 'text' || value === 'markdown' || value === 'json' || value === 'github';
+  return (
+    value === 'text' ||
+    value === 'markdown' ||
+    value === 'json' ||
+    value === 'github' ||
+    value === 'sarif'
+  );
 }
 
 function isFailOn(value: string | undefined): value is FailOn {
@@ -170,9 +187,10 @@ function usage(): string {
     '  sessiontrail audit --transcript-dir <dir> --repo <path> [options]',
     '',
     'Options:',
-    '  --format text|markdown|json|github     Format for stdout (default: text)',
-    '  --json-out <path>                      Also write JSON report to <path>',
-    '  --markdown-out <path>                  Also write Markdown report to <path>',
-    '  --fail-on none|low|medium|high|critical  Exit 1 if rating meets threshold (default: none)'
+    '  --format text|markdown|json|github|sarif  Format for stdout (default: text)',
+    '  --json-out <path>                         Also write JSON report to <path>',
+    '  --markdown-out <path>                     Also write Markdown report to <path>',
+    '  --sarif-out <path>                        Also write SARIF 2.1.0 report to <path>',
+    '  --fail-on none|low|medium|high|critical   Exit 1 if rating meets threshold (default: none)'
   ].join('\n');
 }

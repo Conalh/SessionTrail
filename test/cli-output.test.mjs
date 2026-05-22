@@ -138,6 +138,61 @@ test('CLI emits stdout, JSON file, and Markdown file in a single pass', async ()
   }
 });
 
+test('CLI emits valid SARIF 2.1.0 with rule, level, location, fingerprint', async () => {
+  const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'audit', '--transcript', transcript, '--repo', REPO, '--format', 'sarif'],
+    { cwd: packageRoot }
+  );
+
+  const sarif = JSON.parse(stdout);
+  assert.equal(sarif.version, '2.1.0');
+  assert.equal(sarif.runs.length, 1);
+  assert.equal(sarif.runs[0].tool.driver.name, 'SessionTrail');
+
+  // Rules array is derived from the kinds present in the results.
+  const ruleIds = sarif.runs[0].tool.driver.rules.map((r) => r.id);
+  assert.ok(ruleIds.includes('session_trail.write_outside_repo'));
+
+  // Spot-check a result row.
+  const writeResult = sarif.runs[0].results.find(
+    (r) => r.ruleId === 'session_trail.write_outside_repo'
+  );
+  assert.ok(writeResult);
+  assert.equal(writeResult.level, 'error'); // critical → error
+  assert.ok(writeResult.locations[0].physicalLocation.artifactLocation.uri.endsWith('rogue-session.jsonl'));
+  assert.ok(writeResult.partialFingerprints?.sessionTrail);
+  assert.match(writeResult.partialFingerprints.sessionTrail, /^[a-f0-9]{16}$/);
+
+  // Medium severity maps to warning.
+  const readResult = sarif.runs[0].results.find(
+    (r) => r.ruleId === 'session_trail.read_outside_repo'
+  );
+  assert.ok(readResult);
+  assert.equal(readResult.level, 'warning');
+});
+
+test('CLI --sarif-out writes SARIF to file alongside other formats', async () => {
+  const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
+  const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-sarif-'));
+  const sarifPath = join(tempDir, 'report.sarif');
+
+  try {
+    await execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'audit', '--transcript', transcript, '--repo', REPO, '--format', 'github', '--sarif-out', sarifPath],
+      { cwd: packageRoot }
+    );
+    const sarif = JSON.parse(await readFile(sarifPath, 'utf8'));
+    assert.equal(sarif.version, '2.1.0');
+    assert.ok(sarif.runs[0].results.length > 0);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('CLI rejects --repo with no value instead of crashing', async () => {
   const transcript = join(testDir, 'fixtures', 'benign-session.jsonl');
 

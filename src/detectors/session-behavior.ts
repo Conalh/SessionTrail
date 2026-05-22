@@ -1,5 +1,12 @@
 import { createFinding, getCommandHead, tokenizeShell, fingerprintFinding } from 'agent-gov-core';
 import {
+  compileAllowlist,
+  isMcpServerAllowed,
+  isNetworkTargetAllowed,
+  isShellSubcommandBenign,
+  type CompiledAllowlist
+} from '../config.js';
+import {
   isBroadScanPath,
   isHomeDirectoryPath,
   isPathInsideRepo,
@@ -10,15 +17,21 @@ import {
 import { collectEventPaths, extractShellPaths, isShellTool, toolKey } from '../tool-paths.js';
 import type { Finding, ToolEvent } from '../types.js';
 
-export function detectSessionBehavior(repoRoot: string, events: ToolEvent[]): Finding[] {
+const EMPTY_ALLOWLIST = compileAllowlist({});
+
+export function detectSessionBehavior(
+  repoRoot: string,
+  events: ToolEvent[],
+  allowlist: CompiledAllowlist = EMPTY_ALLOWLIST
+): Finding[] {
   const findings: Finding[] = [];
 
   for (const event of events) {
     const eventFindings = [
       ...detectPathAccess(repoRoot, event),
-      ...detectShell(event),
-      ...detectMcp(event),
-      ...detectNetwork(event),
+      ...detectShell(event, allowlist),
+      ...detectMcp(event, allowlist),
+      ...detectNetwork(event, allowlist),
       ...detectSubagent(event),
       ...detectBroadScan(event)
     ];
@@ -210,7 +223,7 @@ function isBenignCommand(sub: string): boolean {
   return BENIGN_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
-function detectShell(event: ToolEvent): Finding[] {
+function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] {
   if (!isShellTool(event.tool)) {
     return [];
   }
@@ -224,6 +237,7 @@ function detectShell(event: ToolEvent): Finding[] {
   // Severity climbs: low (all benign) → medium (any non-benign) → high
   // (anything risky). A single risky branch in a chain wins; a chain
   // that's entirely benign drops below medium.
+  // Risky patterns ALWAYS win — the allowlist can't whitelist `curl|sh`.
   let severity: 'low' | 'medium' | 'high' = 'low';
   for (const sub of subcommands) {
     // RISKY_PATTERNS still operates on the raw subcommand text because the
@@ -234,12 +248,19 @@ function detectShell(event: ToolEvent): Finding[] {
       severity = 'high';
       break;
     }
+    // Allowlisted patterns and built-in benign verbs both contribute
+    // 'low' to the ladder. The user-declared allowlist matters more
+    // than the built-in benign list — it can be a legitimate `cargo
+    // test` or an internal-only `curl` that shouldn't trip medium.
+    if (isShellSubcommandBenign(sub, allowlist) || isBenignCommand(sub)) {
+      continue;
+    }
     const head = getCommandHead(sub).toLowerCase();
     if (RISKY_VERBS.has(head)) {
       severity = 'high';
       break;
     }
-    if (severity === 'low' && !isBenignCommand(sub)) {
+    if (severity === 'low') {
       severity = 'medium';
     }
   }
@@ -255,27 +276,31 @@ function detectShell(event: ToolEvent): Finding[] {
   })];
 }
 
-function detectMcp(event: ToolEvent): Finding[] {
+function detectMcp(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] {
   if (!isMcpTool(event.tool)) {
     return [];
   }
 
   const server = typeof event.input.server === 'string' ? event.input.server : 'unknown';
   const toolName = typeof event.input.toolName === 'string' ? event.input.toolName : 'unknown';
+  // Allowlisted MCP servers stay visible (we don't suppress) but drop
+  // to 'low' so they don't trip --fail-on medium. A meta-reviewer can
+  // still see the invocation in data; the user opted in.
+  const severity = isMcpServerAllowed(server, allowlist) ? 'low' : 'medium';
 
   return [createFinding({
     tool: 'session_trail',
     name: 'mcp_tool_invoked',
-    severity: 'medium',
+    severity,
     message: `MCP tool invoked: ${server}/${toolName}`,
     detail: 'Confirm the MCP server and tool matched the declared session permissions.',
     location: { file: event.source ?? 'session', line: event.line },
-    data: { server, tool: toolName },
+    data: { server, tool: toolName, allowed: severity === 'low' },
     salientKey: `${server}/${toolName}`
   })];
 }
 
-function detectNetwork(event: ToolEvent): Finding[] {
+function detectNetwork(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] {
   if (!isNetworkTool(event.tool)) {
     return [];
   }
@@ -286,15 +311,16 @@ function detectNetwork(event: ToolEvent): Finding[] {
       : typeof event.input.search_term === 'string'
         ? event.input.search_term
         : 'external target';
+  const severity = isNetworkTargetAllowed(target, allowlist) ? 'low' : 'medium';
 
   return [createFinding({
     tool: 'session_trail',
     name: 'network_intent',
-    severity: 'medium',
+    severity,
     message: `Network request via ${event.tool}: ${truncate(target, 120)}`,
     detail: 'Review external network use against declared permissions.',
     location: { file: event.source ?? 'session', line: event.line },
-    data: { tool: event.tool, target },
+    data: { tool: event.tool, target, allowed: severity === 'low' },
     salientKey: target
   })];
 }

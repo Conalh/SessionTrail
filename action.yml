@@ -40,6 +40,9 @@ outputs:
   runtime-count:
     description: Number of agent runtimes represented in the reviewed transcripts.
     value: ${{ steps.run.outputs.runtime-count }}
+  sarif-file:
+    description: Filesystem path of the SARIF 2.1.0 report (uploadable via github/codeql-action/upload-sarif).
+    value: ${{ steps.run.outputs.sarif-file }}
 
 runs:
   using: composite
@@ -67,11 +70,12 @@ runs:
 
         report_file="${RUNNER_TEMP:-.}/sessiontrail-report.md"
         json_file="${RUNNER_TEMP:-.}/sessiontrail-report.json"
+        sarif_file="${RUNNER_TEMP:-.}/sessiontrail-report.sarif"
 
-        # One audit pass emits GitHub annotations to stdout and the JSON
-        # and Markdown reports straight to files. Threshold-driven exit
-        # codes come from the CLI via --fail-on (same severity ranks as
-        # the action input), so the bash never has to know about them.
+        # One audit pass emits GitHub annotations to stdout and the JSON,
+        # Markdown, and SARIF reports straight to files. Threshold-driven
+        # exit codes come from the CLI via --fail-on (same severity ranks
+        # as the action input), so the bash never has to know about them.
         # `|| audit_exit=$?` lets us inspect the exit code without
         # tripping `set -e` — we still emit outputs before failing.
         audit_exit=0
@@ -81,6 +85,7 @@ runs:
             --format github \
             --json-out "$json_file" \
             --markdown-out "$report_file" \
+            --sarif-out "$sarif_file" \
             --fail-on "$fail_on" || audit_exit=$?
         else
           node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
@@ -88,6 +93,7 @@ runs:
             --format github \
             --json-out "$json_file" \
             --markdown-out "$report_file" \
+            --sarif-out "$sarif_file" \
             --fail-on "$fail_on" || audit_exit=$?
         fi
 
@@ -109,6 +115,7 @@ runs:
         echo "tool-invocation-count=$tool_invocation_count" >> "$GITHUB_OUTPUT"
         echo "unique-tool-count=$unique_tool_count" >> "$GITHUB_OUTPUT"
         echo "runtime-count=$runtime_count" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$sarif_file" >> "$GITHUB_OUTPUT"
 
         # Propagate the CLI's threshold decision. Bash rank() table is
         # gone — passesSeverityThreshold in core is the single source of

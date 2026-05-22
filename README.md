@@ -69,10 +69,27 @@ node dist/index.js audit --transcript-dir C:/Users/conno/.cursor/projects/c-Dev-
 
 CLI options:
 
-- `--format text|markdown|json|github` — output written to stdout (default: `text`).
+- `--format text|markdown|json|github|sarif` — output written to stdout (default: `text`).
 - `--json-out <path>` — also write the JSON report to a file. Combine with `--format github` so the action streams annotations to stdout while side-outputting JSON.
 - `--markdown-out <path>` — also write the Markdown report to a file.
+- `--sarif-out <path>` — also write a SARIF 2.1.0 report to a file. Uploadable to GitHub Code Scanning via `github/codeql-action/upload-sarif`.
 - `--fail-on none|low|medium|high|critical` — exit 1 when the session rating meets or exceeds the threshold (default: `none`). Uses the same severity ladder as the GitHub Action.
+
+### Allowlist (`.sessiontrail.json`)
+
+Drop a `.sessiontrail.json` at the audit `--repo` root to declare project-specific expected behaviors. Matched findings drop to `low` severity — visible in the report, but not enough to trip `--fail-on medium` or higher. The risky-pattern detection (e.g. `npm publish`, `curl | sh`, `rm -rf`) still wins, so the allowlist cannot whitelist known exfiltration shapes.
+
+```json
+{
+  "allowedMcpServers": ["github-pr-helper"],
+  "benignShellPatterns": ["^cargo\\s+test", "^deno\\s+task\\s+\\w+$"],
+  "allowedNetworkHosts": ["internal.example.com"]
+}
+```
+
+- `allowedMcpServers` — exact server name match (case-insensitive).
+- `benignShellPatterns` — RegExp source strings, applied to each tokenized subcommand with the case-insensitive flag.
+- `allowedNetworkHosts` — substring match (case-insensitive) against the requested URL or search term.
 
 Supported transcript families:
 
@@ -99,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: Conalh/SessionTrail@v0.1.1
+      - uses: Conalh/SessionTrail@v0.3.0
         with:
           transcript: path/to/session.jsonl
           repo: .
@@ -129,7 +146,7 @@ jobs:
           name: ai-agent-transcripts
           path: sessiontrail-transcripts
 
-      - uses: Conalh/SessionTrail@v0.1.1
+      - uses: Conalh/SessionTrail@v0.3.0
         with:
           transcript-dir: sessiontrail-transcripts
           repo: .
@@ -145,6 +162,34 @@ Action outputs:
 - `tool-invocation-count`: total tool invocations parsed
 - `unique-tool-count`: number of unique tools invoked
 - `runtime-count`: number of agent runtimes represented in the reviewed transcripts
+- `sarif-file`: filesystem path of the SARIF 2.1.0 report written by the action
+
+### Upload SARIF to GitHub Code Scanning
+
+The action writes a SARIF report to `${{ runner.temp }}/sessiontrail-report.sarif` and exposes the path via the `sarif-file` output. Chain it into `github/codeql-action/upload-sarif` to surface findings in the Security tab:
+
+```yaml
+jobs:
+  sessiontrail:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: audit
+        uses: Conalh/SessionTrail@v0.3.0
+        with:
+          transcript: path/to/session.jsonl
+          repo: .
+          fail-on: none
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-file }}
+          category: sessiontrail
+```
 
 ## Current Findings
 

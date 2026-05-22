@@ -2,7 +2,7 @@ import { emitFindingAnnotation } from 'agent-gov-core';
 import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
 export type SessionRating = 'none' | Severity;
-export type ReportFormat = 'text' | 'markdown' | 'json' | 'github';
+export type ReportFormat = 'text' | 'markdown' | 'json' | 'github' | 'sarif';
 
 export interface SessionReport {
   rating: SessionRating;
@@ -75,6 +75,10 @@ export function renderReport(report: SessionReport, format: ReportFormat): strin
 
   if (format === 'github') {
     return renderGithubAnnotations(report);
+  }
+
+  if (format === 'sarif') {
+    return renderSarif(report);
   }
 
   return renderText(report);
@@ -221,6 +225,86 @@ function renderGithubAnnotations(report: SessionReport): string {
       })
       .join('\n') + '\n'
   );
+}
+
+// SARIF 2.1.0 — https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
+// GitHub Code Scanning accepts this format directly via the
+// `github/codeql-action/upload-sarif` action. Each Finding becomes a
+// `result`; the kinds become tool rules (so GitHub can group findings
+// by rule in the Code Scanning UI).
+function renderSarif(report: SessionReport): string {
+  // Map agent-gov severities to SARIF levels.
+  // SARIF only has: none, note, warning, error.
+  const SARIF_LEVEL: Record<string, 'note' | 'warning' | 'error'> = {
+    low: 'note',
+    medium: 'warning',
+    high: 'error',
+    critical: 'error'
+  };
+
+  // Build the rules array from observed kinds so the SARIF run is
+  // self-describing — GitHub Code Scanning groups results by rule.
+  const seenKinds = new Set<string>();
+  for (const finding of report.findings) {
+    seenKinds.add(finding.kind);
+  }
+  const rules = [...seenKinds].map((kind) => ({
+    id: kind,
+    name: kind,
+    shortDescription: { text: SUMMARY_LABELS[kind] ?? kind },
+    helpUri: 'https://github.com/Conalh/SessionTrail#current-findings'
+  }));
+
+  const results = report.findings.map((finding) => {
+    const result: Record<string, unknown> = {
+      ruleId: finding.kind,
+      level: SARIF_LEVEL[finding.severity] ?? 'warning',
+      message: { text: finding.message },
+      // Stable identifier across runs so Code Scanning can dedupe.
+      partialFingerprints: finding.fingerprint
+        ? { sessionTrail: finding.fingerprint }
+        : undefined
+    };
+
+    if (finding.location?.file) {
+      result.locations = [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: finding.location.file },
+            ...(finding.location.line
+              ? { region: { startLine: finding.location.line } }
+              : {})
+          }
+        }
+      ];
+    }
+
+    if (finding.detail) {
+      (result.message as { text: string; markdown?: string }).markdown =
+        `${finding.message}\n\n_${finding.detail}_`;
+    }
+
+    return result;
+  });
+
+  const sarif = {
+    $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: 'SessionTrail',
+            informationUri: 'https://github.com/Conalh/SessionTrail',
+            rules
+          }
+        },
+        results
+      }
+    ]
+  };
+
+  return `${JSON.stringify(sarif, null, 2)}\n`;
 }
 
 function capitalize(value: string): string {
