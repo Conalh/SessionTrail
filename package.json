@@ -11,7 +11,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "agent-gov-core": "github:Conalh/agent-gov-core#v0.2.0"
+    "agent-gov-core": "github:Conalh/agent-gov-core#v0.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
