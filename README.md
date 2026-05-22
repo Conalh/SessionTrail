@@ -55,16 +55,24 @@ node dist/index.js audit --transcript test/fixtures/rogue-session.jsonl --repo C
 
 ## Local Use
 
+After `npm install -g sessiontrail` (or `npx sessiontrail` for one-off runs):
+
+```powershell
+sessiontrail audit --transcript test/fixtures/rogue-session.jsonl --repo C:/Dev/Demo --format markdown
+```
+
+From a local checkout:
+
 ```powershell
 npm install
-npm run build
-node dist/index.js audit --transcript test/fixtures/rogue-session.jsonl --repo C:/Dev/Demo --format markdown
+npm run bundle
+node bundle/index.js audit --transcript test/fixtures/rogue-session.jsonl --repo C:/Dev/Demo --format markdown
 ```
 
 Audit every JSONL file in a transcript directory:
 
 ```powershell
-node dist/index.js audit --transcript-dir C:/Users/conno/.cursor/projects/c-Dev-Demo/agent-transcripts --repo C:/Dev/Demo --format json
+sessiontrail audit --transcript-dir C:/Users/conno/.cursor/projects/c-Dev-Demo/agent-transcripts --repo C:/Dev/Demo --format json
 ```
 
 CLI options:
@@ -90,6 +98,8 @@ Drop a `.sessiontrail.json` at the audit `--repo` root to declare project-specif
 - `allowedMcpServers` — exact server name match (case-insensitive).
 - `benignShellPatterns` — RegExp source strings, applied to each tokenized subcommand with the case-insensitive flag.
 - `allowedNetworkHosts` — substring match (case-insensitive) against the requested URL or search term.
+
+See [`.sessiontrail.json.example`](.sessiontrail.json.example) in this repo for a copyable starter file.
 
 Supported transcript families:
 
@@ -153,7 +163,7 @@ jobs:
           fail-on: none
 ```
 
-The action uploads nothing by default. It reads the transcript from the workspace, writes a Markdown report to the GitHub Actions step summary, and emits warning annotations for each finding.
+The action uploads nothing by default. It reads the transcript from the workspace, writes a Markdown report to the GitHub Actions step summary, and emits severity-aware inline annotations for each finding — `::error` for critical and high, `::warning` for medium and low.
 
 Action outputs:
 

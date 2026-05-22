@@ -1,4 +1,4 @@
-import { emitFindingAnnotation } from 'agent-gov-core';
+import { emitFindingAnnotation, generateWorkflowSummary } from 'agent-gov-core';
 import type { ParseStats } from './transcript.js';
 import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
@@ -167,26 +167,23 @@ function renderMarkdown(report: SessionReport): string {
     lines.push('');
   }
 
-  for (const severity of ['critical', 'high', 'medium', 'low'] as const) {
-    const matches = report.findings.filter((finding) => finding.severity === severity);
-    if (matches.length === 0) {
-      continue;
+  // Severity-grouped findings table comes from agent-gov-core so the
+  // markdown matches the shape used by every other suite tool. Our
+  // SessionTrail-specific extras (behavior summary, path heat map, the
+  // header block) are already rendered above; this is only the
+  // findings section.
+  //
+  // Fold the touched target into the message before handing to core,
+  // since generateWorkflowSummary doesn't know about data.target and
+  // we'd lose that detail in the table otherwise.
+  const annotatedFindings = report.findings.map((finding) => {
+    const target = findingTarget(finding);
+    if (target && target !== 'session' && target !== finding.location?.file) {
+      return { ...finding, message: `${finding.message} (${target})` };
     }
-
-    lines.push(`## ${capitalize(severity)}`, '');
-    for (const finding of matches) {
-      // finding.message already leads with the human-readable subject
-      // (see createFinding call sites). Add the touched target in
-      // parens when it's distinct from the message context.
-      const target = findingTarget(finding);
-      const targetSuffix = target && target !== 'session' ? ` (${target})` : '';
-      lines.push(`- ${finding.message}${targetSuffix}`);
-      if (finding.detail) {
-        lines.push(`  ${finding.detail}`);
-      }
-    }
-    lines.push('');
-  }
+    return finding;
+  });
+  lines.push(generateWorkflowSummary(annotatedFindings, { title: 'Findings' }));
 
   return `${lines.join('\n').trimEnd()}\n`;
 }

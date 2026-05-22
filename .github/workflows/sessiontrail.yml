@@ -17,3 +17,32 @@ jobs:
           transcript-dir: test/fixtures
           repo: .
           fail-on: none
+
+      # Dogfood detection quality, not just "the action runs". The
+      # rogue-session fixture is engineered to trip critical findings;
+      # if we run it through the action and get back anything less than
+      # critical, something regressed in the detection pipeline.
+      - name: Audit only the rogue fixture
+        id: rogue
+        uses: ./
+        with:
+          transcript: test/fixtures/rogue-session.jsonl
+          repo: .
+          fail-on: none
+
+      - name: Assert rogue session reads as critical
+        shell: bash
+        env:
+          ROGUE_RATING: ${{ steps.rogue.outputs.rating }}
+          ROGUE_FINDINGS: ${{ steps.rogue.outputs.finding-count }}
+        run: |
+          set -euo pipefail
+          if [ "$ROGUE_RATING" != "critical" ]; then
+            echo "::error::rogue-session.jsonl rated $ROGUE_RATING; expected critical"
+            exit 1
+          fi
+          if [ "$ROGUE_FINDINGS" -lt 6 ]; then
+            echo "::error::rogue-session.jsonl produced $ROGUE_FINDINGS findings; expected >= 6"
+            exit 1
+          fi
+          echo "rogue session correctly classified critical with $ROGUE_FINDINGS findings"

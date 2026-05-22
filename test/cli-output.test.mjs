@@ -88,7 +88,12 @@ test('CLI emits Markdown behavior summary and heat map', async () => {
   assert.match(stdout, /Behavior summary/);
   assert.match(stdout, /Path heat map/);
   assert.match(stdout, /shell command invocations/);
-  assert.doesNotMatch(stdout, /session_trail\.shell_command_invoked/);
+  // The Behavior summary section must use the friendly label, not the
+  // raw kind. The Findings table further down legitimately includes the
+  // kind in its Kind column (it's the GitHub Code Scanning grouping
+  // field), so scope this check to the summary section only.
+  const summarySection = stdout.split('## Behavior summary')[1]?.split('##')[0] ?? '';
+  assert.doesNotMatch(summarySection, /session_trail\.shell_command_invoked/);
 });
 
 test('CLI emits Markdown runtime summary when no findings are present', async () => {

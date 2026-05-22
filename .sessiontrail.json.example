@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to .sessiontrail.json at the repo root. All three fields are optional. Matched findings drop to severity 'low' — they stay visible but don't trip --fail-on at medium or higher. RISKY_PATTERNS (npm publish, curl|sh, rm -rf, git push, …) always win and cannot be allowlisted.",
+
+  "allowedMcpServers": [
+    "github-pr-helper"
+  ],
+
+  "benignShellPatterns": [
+    "^cargo\\s+test",
+    "^deno\\s+task\\s+\\w+$"
+  ],
+
+  "allowedNetworkHosts": [
+    "internal.example.com"
+  ]
+}
