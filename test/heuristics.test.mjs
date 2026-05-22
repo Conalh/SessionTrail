@@ -145,6 +145,63 @@ test('shell extraction does not flag innocuous absolute paths like /bin/bash', (
   assert.equal(shellFindings.length, 0, `expected no path findings, got ${JSON.stringify(shellFindings.map(f => f.kind))}`);
 });
 
+test('neutral setup verbs (cd, export, source) do not bump severity', () => {
+  // `cd src && npm test` used to land at medium because `cd src` wasn't
+  // benign — now `cd` is neutral and the chain stays low.
+  const cdEvent = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'cd src && npm test' }
+  };
+  const cdShell = detectSessionBehavior('C:/Dev/Demo', [cdEvent])
+    .find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.equal(cdShell.severity, 'low');
+
+  // `export FOO=bar && pwd` — both are neutral/benign, stays low.
+  const exportEvent = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'export FOO=bar && pwd' }
+  };
+  const exportShell = detectSessionBehavior('C:/Dev/Demo', [exportEvent])
+    .find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.equal(exportShell.severity, 'low');
+
+  // Neutral does NOT override risky — `cd / && rm -rf .` stays high.
+  const riskyEvent = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'cd / && rm -rf .' }
+  };
+  const riskyShell = detectSessionBehavior('C:/Dev/Demo', [riskyEvent])
+    .find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.equal(riskyShell.severity, 'high');
+});
+
+test('collectEventPaths normalizes tool name casing and namespacing', async () => {
+  // Defensive: future runtimes might emit lowercase or namespaced tool
+  // names. The path extractor should still pick up the inputs.
+  const { collectEventPaths } = await import('../dist/tool-paths.js');
+  const variants = ['Read', 'read', 'READ', 'agent.Read', 'cursor.read'];
+  for (const tool of variants) {
+    const paths = collectEventPaths({
+      tool,
+      runtime: 'claude-code',
+      line: 1,
+      turn: 1,
+      input: { file_path: 'C:/Dev/Demo/src/index.ts' }
+    });
+    assert.equal(paths.length, 1, `expected 1 path for tool=${tool}, got ${paths.length}`);
+    assert.equal(paths[0].kind, 'read');
+  }
+});
+
 test('benign shell commands downgrade to low severity', () => {
   const event = {
     tool: 'Bash',

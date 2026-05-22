@@ -218,9 +218,28 @@ const BENIGN_PATTERNS: RegExp[] = [
   /^(?:pwd|whoami|id|uname|hostname|date|tty|which|where)\b/i,
 ];
 
+// Shell builtins that change directory/environment but don't themselves
+// invoke external code. In a chain like `cd src && npm test`, `cd src`
+// shouldn't bump severity to medium just because it's not in the benign
+// list — it's a neutral setup step. Stripped from the ladder entirely.
+// `eval` is intentionally NOT here (executes arbitrary code).
+const NEUTRAL_VERBS = new Set([
+  'cd', 'pushd', 'popd',
+  'export', 'unset', 'set',
+  'source', '.',
+  ':', 'true', 'false'  // no-op shell builtins
+]);
+
 function isBenignCommand(sub: string): boolean {
   const trimmed = sub.trim();
   return BENIGN_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+function isNeutralCommand(sub: string): boolean {
+  // getCommandHead handles `env VAR=val cd`, `time cd`, etc. — strips
+  // wrappers so the neutral check sees the actual head verb.
+  const head = getCommandHead(sub).toLowerCase();
+  return NEUTRAL_VERBS.has(head);
 }
 
 function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] {
@@ -234,9 +253,9 @@ function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] 
   }
 
   const subcommands = tokenizeShell(command);
-  // Severity climbs: low (all benign) → medium (any non-benign) → high
-  // (anything risky). A single risky branch in a chain wins; a chain
-  // that's entirely benign drops below medium.
+  // Severity climbs: low (all benign/neutral) → medium (any non-benign)
+  // → high (anything risky). A single risky branch in a chain wins; a
+  // chain that's entirely benign or neutral drops below medium.
   // Risky patterns ALWAYS win — the allowlist can't whitelist `curl|sh`.
   let severity: 'low' | 'medium' | 'high' = 'low';
   for (const sub of subcommands) {
@@ -247,6 +266,13 @@ function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] 
     if (RISKY_PATTERNS.some((pattern) => pattern.test(sub))) {
       severity = 'high';
       break;
+    }
+    // Neutral setup verbs (cd, export, source, …) don't contribute to
+    // severity. Before this, a chain like `cd src && npm test` got
+    // bumped to medium because `cd src` matched neither benign nor
+    // neutral — now it stays low when paired with a benign sibling.
+    if (isNeutralCommand(sub)) {
+      continue;
     }
     // Allowlisted patterns and built-in benign verbs both contribute
     // 'low' to the ladder. The user-declared allowlist matters more

@@ -68,6 +68,15 @@ export function extractShellPaths(command: string): string[] {
   return [...found];
 }
 
+// Tools whose payload paths we know how to extract, keyed by the
+// normalized tool key (lowercased, post-namespace). Transcript formats
+// across runtimes use varying casing and namespacing — claude-code emits
+// `Read`, codex emits `shell_command`, hypothetical futures might use
+// `agent.read` or `READ` — so we normalize before matching.
+const READ_TOOLS = new Set(['read', 'readlints']);
+const WRITE_TOOLS = new Set(['write', 'strreplace', 'delete', 'edit', 'multiedit']);
+const SEARCH_TOOLS = new Set(['grep', 'glob']);
+
 // Pulls every path the tool event touched, tagged read vs write.
 // Returns raw strings — callers decide whether to normalize (transcript.ts
 // uses normalized paths as Map keys, the detector hands them to path
@@ -75,6 +84,7 @@ export function extractShellPaths(command: string): string[] {
 export function collectEventPaths(event: ToolEvent): ToolPath[] {
   const input = event.input;
   const paths: ToolPath[] = [];
+  const key = toolKey(event.tool);
 
   const add = (value: unknown, kind: PathAccessKind) => {
     if (typeof value === 'string' && value.trim()) {
@@ -82,40 +92,27 @@ export function collectEventPaths(event: ToolEvent): ToolPath[] {
     }
   };
 
-  switch (event.tool) {
-    case 'Read':
-    case 'ReadLints':
-      add(input.path, 'read');
-      add(input.file_path, 'read');
-      if (Array.isArray(input.paths)) {
-        for (const path of input.paths) {
-          add(path, 'read');
-        }
+  if (READ_TOOLS.has(key)) {
+    add(input.path, 'read');
+    add(input.file_path, 'read');
+    if (Array.isArray(input.paths)) {
+      for (const path of input.paths) {
+        add(path, 'read');
       }
-      break;
-    case 'Write':
-    case 'StrReplace':
-    case 'Delete':
-    case 'Edit':
-    case 'MultiEdit':
-      add(input.path, 'write');
-      add(input.file_path, 'write');
-      break;
-    case 'Grep':
-    case 'Glob':
-      add(input.path ?? input.target_directory, 'read');
-      break;
-    default:
-      if (isShellTool(event.tool)) {
-        add(input.working_directory ?? input.workdir ?? input.cwd, 'read');
-      } else if (toolKey(event.tool) === 'view_image') {
-        add(input.path, 'read');
-      } else if (toolKey(event.tool) === 'apply_patch') {
-        for (const path of extractPatchPaths(input.patch)) {
-          add(path, 'write');
-        }
-      }
-      break;
+    }
+  } else if (WRITE_TOOLS.has(key)) {
+    add(input.path, 'write');
+    add(input.file_path, 'write');
+  } else if (SEARCH_TOOLS.has(key)) {
+    add(input.path ?? input.target_directory, 'read');
+  } else if (isShellTool(event.tool)) {
+    add(input.working_directory ?? input.workdir ?? input.cwd, 'read');
+  } else if (key === 'view_image') {
+    add(input.path, 'read');
+  } else if (key === 'apply_patch') {
+    for (const path of extractPatchPaths(input.patch)) {
+      add(path, 'write');
+    }
   }
 
   return paths;
