@@ -108,19 +108,18 @@ const PRIVILEGED_ABSOLUTE_PREFIXES = [
   '/private/var', '/private/etc'
 ];
 
+// Compile once at module load. The previous version built a fresh RegExp
+// per segment per call, churning GC across thousand-path sessions.
+const PRIVILEGED_SEGMENT_REGEXES = [
+  ...PRIVILEGED_DOT_SEGMENTS,
+  ...PRIVILEGED_NESTED_SEGMENTS
+].map((segment) => new RegExp(`(?:^|/)${segment.replace(/\./g, '\\.')}(?:/|$)`));
+
 export function isPrivilegedPath(targetPath: string): boolean {
   const normalized = normalizePath(targetPath).toLowerCase();
 
-  for (const segment of PRIVILEGED_DOT_SEGMENTS) {
-    const escaped = segment.replace(/\./g, '\\.');
-    if (new RegExp(`(?:^|/)${escaped}(?:/|$)`).test(normalized)) {
-      return true;
-    }
-  }
-
-  for (const segment of PRIVILEGED_NESTED_SEGMENTS) {
-    const escaped = segment.replace(/\./g, '\\.');
-    if (new RegExp(`(?:^|/)${escaped}(?:/|$)`).test(normalized)) {
+  for (const regex of PRIVILEGED_SEGMENT_REGEXES) {
+    if (regex.test(normalized)) {
       return true;
     }
   }

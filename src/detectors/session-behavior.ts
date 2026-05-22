@@ -235,10 +235,8 @@ function isBenignCommand(sub: string): boolean {
   return BENIGN_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
-function isNeutralCommand(sub: string): boolean {
-  // getCommandHead handles `env VAR=val cd`, `time cd`, etc. — strips
-  // wrappers so the neutral check sees the actual head verb.
-  const head = getCommandHead(sub).toLowerCase();
+function isNeutralVerb(head: string): boolean {
+  // head must already be lower-cased — caller does that once.
   return NEUTRAL_VERBS.has(head);
 }
 
@@ -267,11 +265,15 @@ function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] 
       severity = 'high';
       break;
     }
+    // Compute the head once per subcommand; the neutral and risky-verb
+    // checks both want the post-wrapper-stripped verb, so caching the
+    // result avoids parsing the command string twice per branch.
+    const head = getCommandHead(sub).toLowerCase();
     // Neutral setup verbs (cd, export, source, …) don't contribute to
     // severity. Before this, a chain like `cd src && npm test` got
     // bumped to medium because `cd src` matched neither benign nor
     // neutral — now it stays low when paired with a benign sibling.
-    if (isNeutralCommand(sub)) {
+    if (isNeutralVerb(head)) {
       continue;
     }
     // Allowlisted patterns and built-in benign verbs both contribute
@@ -281,7 +283,6 @@ function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] 
     if (isShellSubcommandBenign(sub, allowlist) || isBenignCommand(sub)) {
       continue;
     }
-    const head = getCommandHead(sub).toLowerCase();
     if (RISKY_VERBS.has(head)) {
       severity = 'high';
       break;

@@ -323,6 +323,35 @@ test('detector uses event.cwd to resolve relative paths', () => {
   assert.ok(outsideFindings.some((f) => f.kind === 'session_trail.read_outside_repo'));
 });
 
+test('audit emits a low-severity finding when parse lines are skipped', async () => {
+  // Build a fixture with one corrupted line in a temp dir, then run
+  // the full audit and confirm the parse_lines_skipped finding shows up
+  // with severity=low so --fail-on low catches truncated transcripts.
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { runSessionAudit } = await import('../dist/audit.js');
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-parse-'));
+  const fixture = join(tempDir, 'broken.jsonl');
+  try {
+    await writeFile(fixture, [
+      '{"type":"assistant","cwd":"/repo","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/repo/src/x.ts"}}]}}',
+      '{ this line is corrupted',
+      '{"type":"assistant","cwd":"/repo","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}'
+    ].join('\n'));
+    const report = await runSessionAudit({ mode: 'transcript', transcriptPath: fixture, repoRoot: tempDir });
+    const skip = report.findings.find((f) => f.kind === 'session_trail.parse_lines_skipped');
+    assert.ok(skip, 'expected parse_lines_skipped finding');
+    assert.equal(skip.severity, 'low');
+    assert.equal(skip.data.linesSkipped, 1);
+    // Confirm parseStats still reports correctly in the report.
+    assert.equal(report.parseStats.linesSkipped, 1);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('parser counts malformed JSON lines as skipped and surfaces stats', async () => {
   const { parseTranscriptEventsWithStats } = await import('../dist/transcript.js');
   const raw = [

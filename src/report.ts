@@ -191,6 +191,7 @@ function renderMarkdown(report: SessionReport): string {
 function renderText(report: SessionReport): string {
   const lines = [`SessionTrail behavior review: ${report.rating.toUpperCase()}`];
   lines.push(`Agent runtimes: ${formatRuntimeUsage(report.runtimeUsage)}`);
+  lines.push(`Parsed: ${formatParseStats(report.parseStats)}`);
   if (report.behaviorSummary.length > 0) {
     lines.push(`Summary: ${report.behaviorSummary.join('; ')}`);
   }
