@@ -25,3 +25,8 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+      - name: Verify action bundle is up to date (run `npm run bundle` and commit if this fails)
+        run: |
+          npm run bundle
+          git diff --exit-code -- bundle

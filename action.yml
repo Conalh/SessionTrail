@@ -44,20 +44,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install SessionTrail
-      shell: bash
-      run: |
-        set -euo pipefail
-        cd "$GITHUB_ACTION_PATH"
-        npm ci
-
-    - name: Build SessionTrail
-      shell: bash
-      run: |
-        set -euo pipefail
-        cd "$GITHUB_ACTION_PATH"
-        npm run build
-
     - name: Run SessionTrail behavior review
       id: run
       shell: bash
@@ -86,13 +72,13 @@ runs:
         # and Markdown reports straight to files. Earlier versions ran
         # three separate audits which parsed the transcripts each time.
         if [ -n "$transcript" ]; then
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit \
+          node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
             --transcript "$transcript" --repo "$repo" \
             --format github \
             --json-out "$json_file" \
             --markdown-out "$report_file"
         else
-          node "$GITHUB_ACTION_PATH/dist/index.js" audit \
+          node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
             --transcript-dir "$transcript_dir" --repo "$repo" \
             --format github \
             --json-out "$json_file" \
@@ -105,11 +91,13 @@ runs:
           cat "$report_file" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-        rating="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).rating)" "$json_file")"
-        finding_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).findingCount)" "$json_file")"
-        tool_invocation_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).toolInvocationCount)" "$json_file")"
-        unique_tool_count="$(node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).uniqueToolCount)" "$json_file")"
-        runtime_count="$(node -e "const fs = require('node:fs'); const usage = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')).runtimeUsage ?? {}; console.log(Object.values(usage).filter((count) => count > 0).length)" "$json_file")"
+        # jq is pre-installed on GitHub-hosted runners; one short invocation
+        # per scalar beats spawning node five times.
+        rating="$(jq -r '.rating' "$json_file")"
+        finding_count="$(jq -r '.findingCount' "$json_file")"
+        tool_invocation_count="$(jq -r '.toolInvocationCount' "$json_file")"
+        unique_tool_count="$(jq -r '.uniqueToolCount' "$json_file")"
+        runtime_count="$(jq -r '[(.runtimeUsage // {}) | to_entries[] | select(.value > 0)] | length' "$json_file")"
         echo "rating=$rating" >> "$GITHUB_OUTPUT"
         echo "finding-count=$finding_count" >> "$GITHUB_OUTPUT"
         echo "tool-invocation-count=$tool_invocation_count" >> "$GITHUB_OUTPUT"

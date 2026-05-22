@@ -4,17 +4,18 @@
   "description": "Runtime behavior review for AI agent sessions.",
   "type": "module",
   "bin": {
-    "sessiontrail": "./dist/index.js"
+    "sessiontrail": "./bundle/index.js"
   },
   "files": [
-    "dist",
+    "bundle",
     "action.yml",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "prepublishOnly": "npm run build",
+    "bundle": "ncc build src/index.ts -o bundle --minify",
+    "prepublishOnly": "npm run bundle",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vercel/ncc": "^0.38.4",
     "typescript": "^5.9.3"
   },
   "license": "MIT"
