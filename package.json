@@ -10,6 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test test/*.test.mjs"
   },
+  "dependencies": {
+    "agent-gov-core": "github:Conalh/agent-gov-core#v0.1.2"
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.3"
