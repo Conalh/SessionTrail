@@ -178,3 +178,5 @@ npm install
 npm run build
 npm test
 ```
+
+Shared parsing, locators, and the Finding schema live in [agent-gov-core](https://github.com/Conalh/agent-gov-core) — see its [CONTRIBUTING.md](https://github.com/Conalh/agent-gov-core/blob/main/CONTRIBUTING.md) before touching that library.
