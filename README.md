@@ -23,6 +23,18 @@ It is intentionally not a hosted scanner. SessionTrail reads local transcript fi
 
 SessionTrail v0 reviews **tool intent** recorded in transcripts. It does not yet see denied actions or tool results unless those appear in future transcript formats.
 
+## Part of an AI-agent governance suite
+
+Five tools mapping orthogonal failure modes of AI-agent deployment:
+
+- **[ScopeTrail](https://github.com/Conalh/ScopeTrail)** — config drift over time (PR-level).
+- **[PolicyMesh](https://github.com/Conalh/PolicyMesh)** — policy contradictions across agent surfaces.
+- **[CapabilityEcho](https://github.com/Conalh/CapabilityEcho)** — capability drift via code, not config.
+- **[TaskBound](https://github.com/Conalh/TaskBound)** — scope creep after the agent runs.
+- **SessionTrail** *(this repo)* — runtime behavior review across agent session transcripts.
+
+ScopeTrail, PolicyMesh, and CapabilityEcho are preventive (static analysis of config and code). SessionTrail is runtime (in-session transcript review). TaskBound is detective (stated task vs. actual diff).
+
 ## Demo
 
 Live demo PR: [Demo: rogue agent session behavior](https://github.com/Conalh/SessionTrail/pull/1)
