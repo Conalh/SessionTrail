@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: Conalh/SessionTrail@v0.1.0
+      - uses: Conalh/SessionTrail@v0.1.1
         with:
           transcript: path/to/session.jsonl
           repo: .
@@ -110,7 +110,7 @@ jobs:
           name: ai-agent-transcripts
           path: sessiontrail-transcripts
 
-      - uses: Conalh/SessionTrail@v0.1.0
+      - uses: Conalh/SessionTrail@v0.1.1
         with:
           transcript-dir: sessiontrail-transcripts
           repo: .
