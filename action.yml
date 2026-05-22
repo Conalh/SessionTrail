@@ -69,20 +69,26 @@ runs:
         json_file="${RUNNER_TEMP:-.}/sessiontrail-report.json"
 
         # One audit pass emits GitHub annotations to stdout and the JSON
-        # and Markdown reports straight to files. Earlier versions ran
-        # three separate audits which parsed the transcripts each time.
+        # and Markdown reports straight to files. Threshold-driven exit
+        # codes come from the CLI via --fail-on (same severity ranks as
+        # the action input), so the bash never has to know about them.
+        # `|| audit_exit=$?` lets us inspect the exit code without
+        # tripping `set -e` — we still emit outputs before failing.
+        audit_exit=0
         if [ -n "$transcript" ]; then
           node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
             --transcript "$transcript" --repo "$repo" \
             --format github \
             --json-out "$json_file" \
-            --markdown-out "$report_file"
+            --markdown-out "$report_file" \
+            --fail-on "$fail_on" || audit_exit=$?
         else
           node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
             --transcript-dir "$transcript_dir" --repo "$repo" \
             --format github \
             --json-out "$json_file" \
-            --markdown-out "$report_file"
+            --markdown-out "$report_file" \
+            --fail-on "$fail_on" || audit_exit=$?
         fi
 
         cat "$report_file"
@@ -104,26 +110,10 @@ runs:
         echo "unique-tool-count=$unique_tool_count" >> "$GITHUB_OUTPUT"
         echo "runtime-count=$runtime_count" >> "$GITHUB_OUTPUT"
 
-        rank() {
-          case "$1" in
-            none) echo 0 ;;
-            low) echo 1 ;;
-            medium) echo 2 ;;
-            high) echo 3 ;;
-            critical) echo 4 ;;
-            *) echo -1 ;;
-          esac
-        }
-
-        fail_rank="$(rank "$fail_on")"
-        rating_rank="$(rank "$rating")"
-
-        if [ "$fail_rank" -lt 0 ]; then
-          echo "::error::Invalid fail-on value '$fail_on'. Use none, low, medium, high, or critical."
-          exit 2
-        fi
-
-        if [ "$fail_rank" -gt 0 ] && [ "$rating_rank" -ge "$fail_rank" ]; then
+        # Propagate the CLI's threshold decision. Bash rank() table is
+        # gone — passesSeverityThreshold in core is the single source of
+        # truth and is exercised by both local --fail-on runs and CI.
+        if [ "$audit_exit" -ne 0 ]; then
           echo "::error::SessionTrail behavior rating $rating meets fail-on threshold $fail_on."
-          exit 1
+          exit "$audit_exit"
         fi

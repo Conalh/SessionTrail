@@ -1,4 +1,4 @@
-import { getCommandHead, tokenizeShell } from 'agent-gov-core';
+import { createFinding, getCommandHead, tokenizeShell, fingerprintFinding } from 'agent-gov-core';
 import {
   isBroadScanPath,
   isHomeDirectoryPath,
@@ -25,10 +25,16 @@ export function detectSessionBehavior(repoRoot: string, events: ToolEvent[]): Fi
 
     // Stamp the originating transcript on each finding so the GitHub
     // renderer can anchor annotations at the transcript file/line.
-    // Done once here rather than in every detector branch.
+    // Done once here rather than in every detector branch. Because the
+    // location is finalized here, refingerprint after the stamp so the
+    // dedupe key reflects the real annotation site.
     for (const finding of eventFindings) {
-      if (event.source && !finding.source) {
-        finding.source = event.source;
+      if (event.source) {
+        finding.location = {
+          file: event.source,
+          ...(event.line ? { line: event.line } : {})
+        };
+        finding.fingerprint = fingerprintFinding(finding);
       }
       findings.push(finding);
     }
@@ -45,60 +51,65 @@ function detectPathAccess(repoRoot: string, event: ToolEvent): Finding[] {
     const normalized = normalizePath(entry.path);
 
     if (isTranscriptPath(normalized)) {
-      findings.push({
-        kind: 'session_trail.transcript_cross_read',
+      findings.push(createFinding({
+        tool: 'session_trail',
+        name: 'transcript_cross_read',
         severity: 'medium',
-        file: normalized,
-        line: event.line,
-        subject: 'Cross-session transcript read',
-        message: 'Agent read another session transcript outside the current task boundary.',
-        recommendation: 'Review whether cross-session transcript access was necessary.'
-      });
+        message: 'Cross-session transcript read: agent read another session transcript outside the current task boundary.',
+        detail: 'Review whether cross-session transcript access was necessary.',
+        location: { file: event.source ?? 'session', line: event.line },
+        data: { target: normalized },
+        salientKey: normalized
+      }));
     }
 
     if (isPrivilegedPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
-      findings.push({
-        kind: 'session_trail.privileged_path_access',
+      findings.push(createFinding({
+        tool: 'session_trail',
+        name: 'privileged_path_access',
         severity: 'critical',
-        file: normalized,
-        line: event.line,
-        subject: 'Privileged path access',
-        message: 'Agent touched a credential, SSH, or system-config location outside the repository.',
-        recommendation: 'Treat this access as a potential credential leak; review the session immediately.'
-      });
+        message: 'Privileged path access: agent touched a credential, SSH, or system-config location outside the repository.',
+        detail: 'Treat this access as a potential credential leak; review the session immediately.',
+        location: { file: event.source ?? 'session', line: event.line },
+        data: { target: normalized },
+        salientKey: normalized
+      }));
     } else if (isHomeDirectoryPath(normalized) && !isPathInsideRepo(repoRoot, normalized)) {
-      findings.push({
-        kind: 'session_trail.home_directory_access',
+      findings.push(createFinding({
+        tool: 'session_trail',
+        name: 'home_directory_access',
         severity: 'high',
-        file: normalized,
-        line: event.line,
-        subject: 'Home directory access',
-        message: 'Agent accessed a path under the user home or an agent-metadata directory.',
-        recommendation: 'Confirm the home-directory access was intentional and minimal.'
-      });
+        message: 'Home directory access: agent accessed a path under the user home or an agent-metadata directory.',
+        detail: 'Confirm the home-directory access was intentional and minimal.',
+        location: { file: event.source ?? 'session', line: event.line },
+        data: { target: normalized },
+        salientKey: normalized
+      }));
     }
 
     if (!isPathInsideRepo(repoRoot, normalized)) {
       if (entry.kind === 'write') {
-        findings.push({
-          kind: 'session_trail.write_outside_repo',
+        findings.push(createFinding({
+          tool: 'session_trail',
+          name: 'write_outside_repo',
           severity: 'critical',
-          file: normalized,
-          line: event.line,
-          subject: 'Write outside repository',
-          message: 'Agent attempted to write outside the declared repository root.',
-          recommendation: 'Investigate out-of-repo writes immediately.'
-        });
+          message: 'Write outside repository: agent attempted to write outside the declared repository root.',
+          detail: 'Investigate out-of-repo writes immediately.',
+          location: { file: event.source ?? 'session', line: event.line },
+          data: { target: normalized },
+          salientKey: normalized
+        }));
       } else {
-        findings.push({
-          kind: 'session_trail.read_outside_repo',
+        findings.push(createFinding({
+          tool: 'session_trail',
+          name: 'read_outside_repo',
           severity: 'medium',
-          file: normalized,
-          line: event.line,
-          subject: 'Read outside repository',
-          message: 'Agent read a file outside the declared repository root.',
-          recommendation: 'Review whether the external read was required for the task.'
-        });
+          message: 'Read outside repository: agent read a file outside the declared repository root.',
+          detail: 'Review whether the external read was required for the task.',
+          location: { file: event.source ?? 'session', line: event.line },
+          data: { target: normalized },
+          salientKey: normalized
+        }));
       }
     }
   }
@@ -155,17 +166,15 @@ function detectShell(event: ToolEvent): Finding[] {
     }
   }
 
-  return [
-    {
-      kind: 'session_trail.shell_command_invoked',
-      severity: highest,
-      file: 'session',
-      line: event.line,
-      subject: 'Shell command',
-      message: `Agent invoked a shell command: ${truncate(command, 120)}`,
-      recommendation: 'Review shell commands for scope and trust boundaries.'
-    }
-  ];
+  return [createFinding({
+    tool: 'session_trail',
+    name: 'shell_command_invoked',
+    severity: highest,
+    message: `Shell command: ${truncate(command, 120)}`,
+    detail: 'Review shell commands for scope and trust boundaries.',
+    location: { file: event.source ?? 'session', line: event.line },
+    salientKey: command
+  })];
 }
 
 function detectMcp(event: ToolEvent): Finding[] {
@@ -176,17 +185,16 @@ function detectMcp(event: ToolEvent): Finding[] {
   const server = typeof event.input.server === 'string' ? event.input.server : 'unknown';
   const toolName = typeof event.input.toolName === 'string' ? event.input.toolName : 'unknown';
 
-  return [
-    {
-      kind: 'session_trail.mcp_tool_invoked',
-      severity: 'medium',
-      file: 'session',
-      line: event.line,
-      subject: `${server}/${toolName}`,
-      message: `Agent invoked MCP tool ${server}/${toolName}.`,
-      recommendation: 'Confirm the MCP server and tool matched the declared session permissions.'
-    }
-  ];
+  return [createFinding({
+    tool: 'session_trail',
+    name: 'mcp_tool_invoked',
+    severity: 'medium',
+    message: `MCP tool invoked: ${server}/${toolName}`,
+    detail: 'Confirm the MCP server and tool matched the declared session permissions.',
+    location: { file: event.source ?? 'session', line: event.line },
+    data: { server, tool: toolName },
+    salientKey: `${server}/${toolName}`
+  })];
 }
 
 function detectNetwork(event: ToolEvent): Finding[] {
@@ -201,17 +209,16 @@ function detectNetwork(event: ToolEvent): Finding[] {
         ? event.input.search_term
         : 'external target';
 
-  return [
-    {
-      kind: 'session_trail.network_intent',
-      severity: 'medium',
-      file: 'session',
-      line: event.line,
-      subject: event.tool,
-      message: `Agent requested external network access via ${event.tool}: ${truncate(target, 120)}`,
-      recommendation: 'Review external network use against declared permissions.'
-    }
-  ];
+  return [createFinding({
+    tool: 'session_trail',
+    name: 'network_intent',
+    severity: 'medium',
+    message: `Network request via ${event.tool}: ${truncate(target, 120)}`,
+    detail: 'Review external network use against declared permissions.',
+    location: { file: event.source ?? 'session', line: event.line },
+    data: { tool: event.tool, target },
+    salientKey: target
+  })];
 }
 
 function detectSubagent(event: ToolEvent): Finding[] {
@@ -220,17 +227,16 @@ function detectSubagent(event: ToolEvent): Finding[] {
   }
 
   const subagentType = typeof event.input.subagent_type === 'string' ? event.input.subagent_type : 'unknown';
-  return [
-    {
-      kind: 'session_trail.subagent_spawned',
-      severity: 'low',
-      file: 'session',
-      line: event.line,
-      subject: subagentType,
-      message: `Agent spawned a ${subagentType} subagent.`,
-      recommendation: 'Review subagent work for additional scope expansion.'
-    }
-  ];
+  return [createFinding({
+    tool: 'session_trail',
+    name: 'subagent_spawned',
+    severity: 'low',
+    message: `Subagent spawned: ${subagentType}`,
+    detail: 'Review subagent work for additional scope expansion.',
+    location: { file: event.source ?? 'session', line: event.line },
+    data: { subagentType },
+    salientKey: subagentType
+  })];
 }
 
 function detectBroadScan(event: ToolEvent): Finding[] {
@@ -249,25 +255,27 @@ function detectBroadScan(event: ToolEvent): Finding[] {
     return [];
   }
 
-  return [
-    {
-      kind: 'session_trail.broad_path_scan',
-      severity: 'high',
-      file: scanPath ?? 'session',
-      line: event.line,
-      subject: 'Broad path scan',
-      message: 'Agent scanned a very broad home-directory path.',
-      recommendation: 'Prefer repository-scoped searches over home-directory scans.'
-    }
-  ];
+  return [createFinding({
+    tool: 'session_trail',
+    name: 'broad_path_scan',
+    severity: 'high',
+    message: 'Broad path scan: agent scanned a very broad home-directory path.',
+    detail: 'Prefer repository-scoped searches over home-directory scans.',
+    location: { file: event.source ?? 'session', line: event.line },
+    data: { target: scanPath },
+    salientKey: scanPath ?? 'session'
+  })];
 }
 
 function dedupeFindings(findings: Finding[]): Finding[] {
+  // createFinding stamps a deterministic fingerprint on each, so dedupe
+  // by that. salientKey on each finding ensures two distinct targets at
+  // the same (kind, file, line) site still get distinct fingerprints.
   const seen = new Set<string>();
   const unique: Finding[] = [];
 
   for (const finding of findings) {
-    const key = `${finding.kind}|${finding.file}|${finding.line ?? 0}|${finding.subject}`;
+    const key = finding.fingerprint ?? `${finding.kind}|${finding.location?.file ?? ''}|${finding.location?.line ?? 0}`;
     if (seen.has(key)) {
       continue;
     }

@@ -128,7 +128,7 @@ test('CLI rejects --repo with no value instead of crashing', async () => {
   );
 });
 
-test('CLI emits GitHub warning annotations anchored at the transcript file', async () => {
+test('CLI emits GitHub annotations with severity-aware ::error vs ::warning', async () => {
   const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
 
   const { stdout } = await execFileAsync(
@@ -137,11 +137,41 @@ test('CLI emits GitHub warning annotations anchored at the transcript file', asy
     { cwd: packageRoot }
   );
 
-  // Annotations anchor at the transcript file/line (a real, locatable
-  // path) — the accessed target lives in the message body. The earlier
-  // behavior anchored at literal 'session' or at out-of-workspace paths,
-  // which GitHub couldn't attach to anything useful.
-  assert.match(stdout, /::warning file=[^,]*rogue-session\.jsonl,line=\d+/);
-  assert.doesNotMatch(stdout, /::warning file=session,/);
+  // Annotations anchor at the transcript file/line — accessed target
+  // lives in the message body. Critical/high → ::error; medium/low →
+  // ::warning (handled by agent-gov-core's emitFindingAnnotation).
+  assert.match(stdout, /::error [^:]*rogue-session\.jsonl,line=\d+,title=\[session_trail\.write_outside_repo\]/);
+  assert.match(stdout, /::warning [^:]*rogue-session\.jsonl,line=\d+,title=\[session_trail\.read_outside_repo\]/);
   assert.match(stdout, /target: C:\/Users\/conno\/outside-repo\.txt/);
+});
+
+test('CLI --fail-on exits non-zero when rating meets threshold', async () => {
+  const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
+
+  // rogue session is rated critical → should fail at every threshold.
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'audit', '--transcript', transcript, '--repo', REPO, '--format', 'json', '--fail-on', 'high'],
+      { cwd: packageRoot }
+    ),
+    (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /meets fail-on threshold high/);
+      return true;
+    }
+  );
+});
+
+test('CLI --fail-on stays zero when rating is below threshold', async () => {
+  const transcript = join(testDir, 'fixtures', 'benign-session.jsonl');
+
+  // benign session has rating=none → never trips fail-on.
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ['dist/index.js', 'audit', '--transcript', transcript, '--repo', REPO, '--format', 'json', '--fail-on', 'critical'],
+    { cwd: packageRoot }
+  );
+  const report = JSON.parse(stdout);
+  assert.equal(report.rating, 'none');
 });

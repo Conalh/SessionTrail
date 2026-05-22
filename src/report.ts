@@ -1,3 +1,4 @@
+import { emitFindingAnnotation } from 'agent-gov-core';
 import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
 export type SessionRating = 'none' | Severity;
@@ -109,6 +110,17 @@ function rateFindings(findings: Finding[]): SessionRating {
   return rating;
 }
 
+// findingTarget returns the most useful "what was touched" string for a
+// finding — the accessed path if we stashed one in `data.target`, else
+// the location file (transcript), else 'session'.
+function findingTarget(finding: Finding): string {
+  const target = (finding.data as { target?: unknown } | undefined)?.target;
+  if (typeof target === 'string' && target) {
+    return target;
+  }
+  return finding.location?.file ?? 'session';
+}
+
 function renderMarkdown(report: SessionReport): string {
   const lines = [`# SessionTrail behavior review: ${report.rating.toUpperCase()}`, ''];
 
@@ -146,8 +158,15 @@ function renderMarkdown(report: SessionReport): string {
 
     lines.push(`## ${capitalize(severity)}`, '');
     for (const finding of matches) {
-      lines.push(`- **${finding.subject}** (${finding.file}): ${finding.message}`);
-      lines.push(`  Recommendation: ${finding.recommendation}`);
+      // finding.message already leads with the human-readable subject
+      // (see createFinding call sites). Add the touched target in
+      // parens when it's distinct from the message context.
+      const target = findingTarget(finding);
+      const targetSuffix = target && target !== 'session' ? ` (${target})` : '';
+      lines.push(`- ${finding.message}${targetSuffix}`);
+      if (finding.detail) {
+        lines.push(`  ${finding.detail}`);
+      }
     }
     lines.push('');
   }
@@ -163,7 +182,7 @@ function renderText(report: SessionReport): string {
   }
 
   for (const finding of report.findings) {
-    lines.push(`[${finding.severity.toUpperCase()}] ${finding.subject}: ${finding.message}`);
+    lines.push(`[${finding.severity.toUpperCase()}] ${finding.message}`);
   }
 
   if (report.findings.length === 0) {
@@ -178,39 +197,26 @@ function renderGithubAnnotations(report: SessionReport): string {
     return '';
   }
 
+  // emitFindingAnnotation handles severity-aware ::error/::warning, the
+  // file/line params, escaping, and the title; it doesn't know about
+  // SessionTrail's data.target convention, so fold the target into the
+  // message before emitting so the inline annotation says what got
+  // touched without needing a separate field.
   return (
     report.findings
       .map((finding) => {
-        // Prefer the transcript anchor: the finding's `file` is often the
-        // accessed target (`/home/u/.ssh/id_rsa`) or literal 'session',
-        // neither of which exists in the workspace. The transcript usually
-        // doesn't either, but it's at least a real path with a meaningful
-        // line number, and putting the accessed target in the message body
-        // keeps the information without misrepresenting the anchor.
-        const anchorFile = finding.source ?? finding.file;
-        const title = `SessionTrail ${finding.severity} behavior finding`;
-        const subjectSuffix =
-          finding.source && finding.file !== 'session' && finding.file !== finding.source
-            ? ` (target: ${finding.file})`
-            : '';
-        const message = `${finding.message}${subjectSuffix} Recommendation: ${finding.recommendation}`;
-        const properties = [`file=${escapeProperty(anchorFile)}`];
-        if (finding.line && finding.line > 0) {
-          properties.push(`line=${finding.line}`);
-        }
-        properties.push(`title=${escapeProperty(title)}`);
-        return `::warning ${properties.join(',')}::${escapeMessage(message)}`;
+        const target = (finding.data as { target?: unknown } | undefined)?.target;
+        const isExternalTarget =
+          typeof target === 'string' &&
+          target &&
+          target !== finding.location?.file;
+        const annotated: Finding = isExternalTarget
+          ? { ...finding, message: `${finding.message} (target: ${target as string})` }
+          : finding;
+        return emitFindingAnnotation(annotated);
       })
       .join('\n') + '\n'
   );
-}
-
-function escapeMessage(value: string): string {
-  return value.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
-}
-
-function escapeProperty(value: string): string {
-  return escapeMessage(value).replaceAll(':', '%3A').replaceAll(',', '%2C');
 }
 
 function capitalize(value: string): string {

@@ -121,3 +121,29 @@ test('privileged path access emits its own critical finding', () => {
   assert.ok(priv);
   assert.equal(priv.severity, 'critical');
 });
+
+test('findings carry agent-gov-core shape: tool, kind, data.target, fingerprint', () => {
+  const event = {
+    tool: 'Write',
+    runtime: 'claude-code',
+    line: 7,
+    turn: 1,
+    input: { file_path: 'C:/Users/conno/outside-repo.txt' },
+    source: 'transcripts/rogue.jsonl'
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const write = findings.find((finding) => finding.kind === 'session_trail.write_outside_repo');
+  assert.ok(write);
+  // Core schema bits
+  assert.equal(write.tool, 'session_trail');
+  assert.equal(write.severity, 'critical');
+  assert.match(write.fingerprint, /^[a-f0-9]{16}$/);
+  // Transcript anchor goes to location; accessed target goes to data.
+  assert.equal(write.location.file, 'transcripts/rogue.jsonl');
+  assert.equal(write.location.line, 7);
+  assert.equal(write.data.target, 'C:/Users/conno/outside-repo.txt');
+  // Old field names are gone.
+  assert.equal(write.file, undefined);
+  assert.equal(write.subject, undefined);
+  assert.equal(write.recommendation, undefined);
+});

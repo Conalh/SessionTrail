@@ -2,8 +2,13 @@
 
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { passesSeverityThreshold } from 'agent-gov-core';
 import { runSessionAudit } from './audit.js';
 import { renderReport, type ReportFormat } from './report.js';
+import type { Severity } from './types.js';
+
+type FailOn = 'none' | Severity;
+const FAIL_ON_VALUES: readonly FailOn[] = ['none', 'low', 'medium', 'high', 'critical'];
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
@@ -41,6 +46,19 @@ async function runAuditCommand(argv: string[]): Promise<number> {
   }
 
   process.stdout.write(renderReport(report, parsed.format));
+
+  // --fail-on mirrors the GitHub Action's threshold logic via core's
+  // passesSeverityThreshold, so local runs and CI exit-code the same.
+  // rating='none' means no findings → always pass; otherwise compare.
+  if (parsed.failOn !== 'none' && report.rating !== 'none') {
+    if (passesSeverityThreshold(report.rating, parsed.failOn)) {
+      process.stderr.write(
+        `SessionTrail behavior rating ${report.rating} meets fail-on threshold ${parsed.failOn}.\n`
+      );
+      return 1;
+    }
+  }
+
   return 0;
 }
 
@@ -48,6 +66,7 @@ interface AuditFlags {
   format: ReportFormat;
   jsonOut?: string;
   markdownOut?: string;
+  failOn: FailOn;
 }
 
 type ParsedAuditArgs =
@@ -62,6 +81,7 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   let format: ReportFormat = 'text';
   let jsonOut: string | undefined;
   let markdownOut: string | undefined;
+  let failOn: FailOn = 'none';
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -103,6 +123,12 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
       }
       markdownOut = value;
       index += 1;
+    } else if (arg === '--fail-on') {
+      if (!isFailOn(value)) {
+        return { ok: false, error: `Invalid fail-on value: ${value ?? ''}. Use none, low, medium, high, or critical.` };
+      }
+      failOn = value;
+      index += 1;
     } else {
       return { ok: false, error: `Unknown argument: ${arg}` };
     }
@@ -113,18 +139,22 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   }
 
   if (transcriptDir) {
-    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut };
+    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut, failOn };
   }
 
   if (!transcriptPath) {
     return { ok: false, error: 'Missing required --transcript <path> or --transcript-dir <dir> argument.' };
   }
 
-  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut };
+  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut, failOn };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
   return value === 'text' || value === 'markdown' || value === 'json' || value === 'github';
+}
+
+function isFailOn(value: string | undefined): value is FailOn {
+  return typeof value === 'string' && (FAIL_ON_VALUES as readonly string[]).includes(value);
 }
 
 const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
@@ -140,8 +170,9 @@ function usage(): string {
     '  sessiontrail audit --transcript-dir <dir> --repo <path> [options]',
     '',
     'Options:',
-    '  --format text|markdown|json|github   Format for stdout (default: text)',
-    '  --json-out <path>                    Also write JSON report to <path>',
-    '  --markdown-out <path>                Also write Markdown report to <path>'
+    '  --format text|markdown|json|github     Format for stdout (default: text)',
+    '  --json-out <path>                      Also write JSON report to <path>',
+    '  --markdown-out <path>                  Also write Markdown report to <path>',
+    '  --fail-on none|low|medium|high|critical  Exit 1 if rating meets threshold (default: none)'
   ].join('\n');
 }
