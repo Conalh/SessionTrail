@@ -29,24 +29,56 @@ interface CodexResponseItem {
   };
 }
 
+// Surface counts so users can see when a transcript was partially
+// parsed. Audit tools that silently skip malformed lines hide signal —
+// a corrupted middle-of-file event could be the one that matters.
+export interface ParseStats {
+  linesRead: number;
+  eventsExtracted: number;
+  linesSkipped: number;
+}
+
+export interface ParsedTranscript {
+  events: ToolEvent[];
+  stats: ParseStats;
+}
+
 export async function loadTranscriptEvents(transcriptPath: string): Promise<ToolEvent[]> {
+  return (await loadTranscriptEventsWithStats(transcriptPath)).events;
+}
+
+export async function loadTranscriptEventsWithStats(transcriptPath: string): Promise<ParsedTranscript> {
   const raw = await readFile(transcriptPath, 'utf8');
-  return parseTranscriptEvents(raw, transcriptPath);
+  return parseTranscriptEventsWithStats(raw, transcriptPath);
 }
 
 export async function loadTranscriptDirectory(directory: string): Promise<ToolEvent[]> {
+  return (await loadTranscriptDirectoryWithStats(directory)).events;
+}
+
+export async function loadTranscriptDirectoryWithStats(directory: string): Promise<ParsedTranscript> {
   const files = await listJsonlFiles(directory);
   const events: ToolEvent[] = [];
+  const stats: ParseStats = { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 };
 
   for (const file of files) {
-    events.push(...(await loadTranscriptEvents(file)));
+    const parsed = await loadTranscriptEventsWithStats(file);
+    events.push(...parsed.events);
+    stats.linesRead += parsed.stats.linesRead;
+    stats.eventsExtracted += parsed.stats.eventsExtracted;
+    stats.linesSkipped += parsed.stats.linesSkipped;
   }
 
-  return events;
+  return { events, stats };
 }
 
 export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[] {
+  return parseTranscriptEventsWithStats(raw, source).events;
+}
+
+export function parseTranscriptEventsWithStats(raw: string, source?: string): ParsedTranscript {
   const events: ToolEvent[] = [];
+  const stats: ParseStats = { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 };
   let turn = 0;
   let sessionRuntime: AgentRuntime = 'unknown';
 
@@ -55,10 +87,16 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
       continue;
     }
 
+    stats.linesRead += 1;
+
     let parsed: TranscriptMessage;
     try {
       parsed = JSON.parse(line) as TranscriptMessage;
     } catch {
+      // Malformed JSON line — almost always a truncated transcript.
+      // Counting it is the difference between an audit user noticing
+      // partial data and silently trusting a half-parsed file.
+      stats.linesSkipped += 1;
       continue;
     }
 
@@ -70,6 +108,7 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
     const codexEvent = parseCodexFunctionCall(parsed as CodexResponseItem, index + 1, turn, source);
     if (codexEvent) {
       events.push(codexEvent);
+      stats.eventsExtracted += 1;
       continue;
     }
 
@@ -95,10 +134,11 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
         source,
         cwd: eventCwd
       });
+      stats.eventsExtracted += 1;
     }
   }
 
-  return events;
+  return { events, stats };
 }
 
 function countToolUsage(events: ToolEvent[]): Record<string, number> {

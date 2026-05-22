@@ -68,7 +68,8 @@ test('Markdown heat map shows (+N more) when truncated past 12 entries', async (
     events: [],
     runtimeUsage: { cursor: 0, 'claude-code': 0, codex: 0, unknown: 0 },
     toolUsage: {},
-    pathAccess
+    pathAccess,
+    parseStats: { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 }
   });
   const md = renderReport(report, 'markdown');
   assert.match(md, /\(\+8 more\)/);

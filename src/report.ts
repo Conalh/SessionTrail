@@ -1,4 +1,5 @@
 import { emitFindingAnnotation } from 'agent-gov-core';
+import type { ParseStats } from './transcript.js';
 import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
 export type SessionRating = 'none' | Severity;
@@ -14,6 +15,11 @@ export interface SessionReport {
   toolUsage: Record<string, number>;
   pathHeatMap: PathAccess[];
   findings: Finding[];
+  // Visibility into what the parser actually consumed. linesSkipped > 0
+  // usually means a truncated or corrupted transcript — silently
+  // dropping those lines is risky for an audit tool, so we surface the
+  // counts in the report and render them in the markdown summary.
+  parseStats: ParseStats;
 }
 
 const severityRank: Record<SessionRating, number> = {
@@ -49,6 +55,7 @@ export function createReport(
     runtimeUsage: Record<AgentRuntime, number>;
     toolUsage: Record<string, number>;
     pathAccess: PathAccess[];
+    parseStats: ParseStats;
   }
 ): SessionReport {
   return {
@@ -60,7 +67,8 @@ export function createReport(
     behaviorSummary: buildBehaviorSummary(findings, context.toolUsage),
     toolUsage: context.toolUsage,
     pathHeatMap: context.pathAccess,
-    findings
+    findings,
+    parseStats: context.parseStats
   };
 }
 
@@ -131,6 +139,7 @@ function renderMarkdown(report: SessionReport): string {
   lines.push(`Tool invocations: ${report.toolInvocationCount}`);
   lines.push(`Unique tools: ${report.uniqueToolCount}`);
   lines.push(`Agent runtimes: ${formatRuntimeUsage(report.runtimeUsage)}`);
+  lines.push(`Parsed: ${formatParseStats(report.parseStats)}`);
   lines.push(`Findings: ${report.findingCount}`, '');
 
   if (report.findings.length === 0) {
@@ -309,6 +318,16 @@ function renderSarif(report: SessionReport): string {
 
 function capitalize(value: string): string {
   return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function formatParseStats(stats: ParseStats): string {
+  // Mention skipped lines prominently when present — that's the signal
+  // worth seeing. Pure noise to render "0 skipped" when everything went
+  // fine, so only call it out when it's non-zero.
+  const base = `${stats.linesRead} lines, ${stats.eventsExtracted} events`;
+  return stats.linesSkipped > 0
+    ? `${base}, ${stats.linesSkipped} skipped (malformed JSON)`
+    : base;
 }
 
 function formatRuntimeUsage(runtimeUsage: Record<AgentRuntime, number>): string {

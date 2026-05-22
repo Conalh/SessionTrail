@@ -1,6 +1,10 @@
 import { loadAllowlist } from './config.js';
 import { detectSessionBehavior } from './detectors/session-behavior.js';
-import { loadTranscriptDirectory, loadTranscriptEvents, summarizeSession } from './transcript.js';
+import {
+  loadTranscriptDirectoryWithStats,
+  loadTranscriptEventsWithStats,
+  summarizeSession
+} from './transcript.js';
 import { createReport, type SessionReport } from './report.js';
 
 export type AuditInput =
@@ -8,22 +12,23 @@ export type AuditInput =
   | { mode: 'directory'; transcriptDir: string; repoRoot: string };
 
 export async function runSessionAudit(options: AuditInput): Promise<SessionReport> {
-  const events =
+  const parsed =
     options.mode === 'transcript'
-      ? await loadTranscriptEvents(options.transcriptPath)
-      : await loadTranscriptDirectory(options.transcriptDir);
+      ? await loadTranscriptEventsWithStats(options.transcriptPath)
+      : await loadTranscriptDirectoryWithStats(options.transcriptDir);
 
   const allowlist = await loadAllowlist(options.repoRoot);
-  const summary = summarizeSession(events);
-  const findings = detectSessionBehavior(options.repoRoot, events, allowlist);
+  const summary = summarizeSession(parsed.events);
+  const findings = detectSessionBehavior(options.repoRoot, parsed.events, allowlist);
   const transcriptPath = options.mode === 'transcript' ? options.transcriptPath : options.transcriptDir;
 
   return createReport(findings, {
     transcriptPath,
     repoRoot: options.repoRoot,
-    events,
+    events: parsed.events,
     runtimeUsage: summary.runtimeUsage,
     toolUsage: summary.toolUsage,
-    pathAccess: summary.pathAccess
+    pathAccess: summary.pathAccess,
+    parseStats: parsed.stats
   });
 }

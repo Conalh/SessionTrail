@@ -323,6 +323,21 @@ test('detector uses event.cwd to resolve relative paths', () => {
   assert.ok(outsideFindings.some((f) => f.kind === 'session_trail.read_outside_repo'));
 });
 
+test('parser counts malformed JSON lines as skipped and surfaces stats', async () => {
+  const { parseTranscriptEventsWithStats } = await import('../dist/transcript.js');
+  const raw = [
+    '{"type":"assistant","cwd":"/home/u","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/etc/passwd"}}]}}',
+    '{ this line is corrupted',
+    '',
+    '{"type":"assistant","cwd":"/home/u","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}'
+  ].join('\n');
+  const { events, stats } = parseTranscriptEventsWithStats(raw, 'fixture.jsonl');
+  assert.equal(events.length, 2);
+  assert.equal(stats.linesRead, 3);
+  assert.equal(stats.eventsExtracted, 2);
+  assert.equal(stats.linesSkipped, 1);
+});
+
 test('findings carry agent-gov-core shape: tool, kind, data.target, fingerprint', () => {
   const event = {
     tool: 'Write',
