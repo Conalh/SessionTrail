@@ -23,16 +23,20 @@ const severityRank: Record<SessionRating, number> = {
   critical: 4
 };
 
+// Keys must match the `session_trail.*` finding kinds emitted by the
+// detector — the lookup is exact, so missing or unprefixed entries fall
+// through to the raw kind string.
 const SUMMARY_LABELS: Record<string, string> = {
-  read_outside_repo: 'reads outside the repository',
-  write_outside_repo: 'writes outside the repository',
-  home_directory_access: 'home or Cursor metadata access',
-  transcript_cross_read: 'cross-session transcript reads',
-  shell_command_invoked: 'shell command invocations',
-  mcp_tool_invoked: 'MCP tool invocations',
-  network_intent: 'external network requests',
-  subagent_spawned: 'subagent spawns',
-  broad_path_scan: 'broad home-directory scans'
+  'session_trail.read_outside_repo': 'reads outside the repository',
+  'session_trail.write_outside_repo': 'writes outside the repository',
+  'session_trail.privileged_path_access': 'privileged credential or system-path access',
+  'session_trail.home_directory_access': 'home or Cursor metadata access',
+  'session_trail.transcript_cross_read': 'cross-session transcript reads',
+  'session_trail.shell_command_invoked': 'shell command invocations',
+  'session_trail.mcp_tool_invoked': 'MCP tool invocations',
+  'session_trail.network_intent': 'external network requests',
+  'session_trail.subagent_spawned': 'subagent spawns',
+  'session_trail.broad_path_scan': 'broad home-directory scans'
 };
 
 export function createReport(

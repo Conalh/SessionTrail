@@ -7,6 +7,7 @@ import {
   isTranscriptPath,
   normalizePath
 } from '../paths.js';
+import { collectEventPaths, isShellTool, toolKey } from '../tool-paths.js';
 import type { Finding, ToolEvent } from '../types.js';
 
 export function detectSessionBehavior(repoRoot: string, events: ToolEvent[]): Finding[] {
@@ -249,54 +250,6 @@ function detectBroadScan(event: ToolEvent): Finding[] {
   ];
 }
 
-function collectEventPaths(event: ToolEvent): Array<{ path: string; kind: 'read' | 'write' }> {
-  const input = event.input;
-  const paths: Array<{ path: string; kind: 'read' | 'write' }> = [];
-  const add = (value: unknown, kind: 'read' | 'write') => {
-    if (typeof value === 'string' && value.trim()) {
-      paths.push({ path: value, kind });
-    }
-  };
-
-  switch (event.tool) {
-    case 'Read':
-    case 'ReadLints':
-      add(input.path, 'read');
-      add(input.file_path, 'read');
-      if (Array.isArray(input.paths)) {
-        for (const path of input.paths) {
-          add(path, 'read');
-        }
-      }
-      break;
-    case 'Write':
-    case 'StrReplace':
-    case 'Delete':
-    case 'Edit':
-    case 'MultiEdit':
-      add(input.path, 'write');
-      add(input.file_path, 'write');
-      break;
-    case 'Grep':
-    case 'Glob':
-      add(input.path ?? input.target_directory, 'read');
-      break;
-    default:
-      if (isShellTool(event.tool)) {
-        add(input.working_directory ?? input.workdir ?? input.cwd, 'read');
-      } else if (toolKey(event.tool) === 'view_image') {
-        add(input.path, 'read');
-      } else if (toolKey(event.tool) === 'apply_patch') {
-        for (const path of extractPatchPaths(input.patch)) {
-          add(path, 'write');
-        }
-      }
-      break;
-  }
-
-  return paths;
-}
-
 function dedupeFindings(findings: Finding[]): Finding[] {
   const seen = new Set<string>();
   const unique: Finding[] = [];
@@ -321,15 +274,6 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max - 3)}...`;
 }
 
-function toolKey(tool: string): string {
-  return (tool.split('.').pop() ?? tool).toLowerCase();
-}
-
-function isShellTool(tool: string): boolean {
-  const key = toolKey(tool);
-  return key === 'shell' || key === 'bash' || key === 'shell_command';
-}
-
 function isMcpTool(tool: string): boolean {
   const normalized = tool.toLowerCase();
   return toolKey(tool) === 'callmcptool' || normalized.includes('mcp');
@@ -344,18 +288,4 @@ function isNetworkTool(tool: string): boolean {
 function isSearchTool(tool: string): boolean {
   const key = toolKey(tool);
   return key === 'grep' || key === 'glob';
-}
-
-function extractPatchPaths(value: unknown): string[] {
-  if (typeof value !== 'string') {
-    return [];
-  }
-
-  const paths: string[] = [];
-  const pattern = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(value)) !== null) {
-    paths.push(match[1].trim());
-  }
-  return paths;
 }

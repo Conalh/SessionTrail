@@ -56,6 +56,8 @@ test('CLI emits Markdown behavior summary and heat map', async () => {
   assert.match(stdout, /# SessionTrail behavior review: CRITICAL/);
   assert.match(stdout, /Behavior summary/);
   assert.match(stdout, /Path heat map/);
+  assert.match(stdout, /shell command invocations/);
+  assert.doesNotMatch(stdout, /session_trail\.shell_command_invoked/);
 });
 
 test('CLI emits Markdown runtime summary when no findings are present', async () => {
@@ -70,6 +72,24 @@ test('CLI emits Markdown runtime summary when no findings are present', async ()
   assert.match(stdout, /# SessionTrail behavior review: NONE/);
   assert.match(stdout, /Agent runtimes: cursor x3/);
   assert.match(stdout, /No session behavior findings\./);
+});
+
+test('CLI rejects --repo with no value instead of crashing', async () => {
+  const transcript = join(testDir, 'fixtures', 'benign-session.jsonl');
+
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'audit', '--transcript', transcript, '--repo'],
+      { cwd: packageRoot }
+    ),
+    (error) => {
+      assert.equal(error.code, 2);
+      assert.match(error.stderr, /Missing value for --repo\./);
+      assert.doesNotMatch(error.stderr, /ERR_INVALID_ARG_TYPE/);
+      return true;
+    }
+  );
 });
 
 test('CLI emits GitHub warning annotations', async () => {

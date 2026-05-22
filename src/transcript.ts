@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizePath } from './paths.js';
+import { collectEventPaths } from './tool-paths.js';
 import type { AgentRuntime, ToolEvent } from './types.js';
 
 interface TranscriptMessage {
@@ -124,15 +125,15 @@ export function buildPathAccess(events: ToolEvent[]): Array<{ path: string; read
   const access = new Map<string, { path: string; reads: number; writes: number }>();
 
   for (const event of events) {
-    const paths = extractPathsFromEvent(event);
-    for (const entry of paths) {
-      const current = access.get(entry.path) ?? { path: entry.path, reads: 0, writes: 0 };
+    for (const entry of collectEventPaths(event)) {
+      const path = normalizePath(entry.path);
+      const current = access.get(path) ?? { path, reads: 0, writes: 0 };
       if (entry.kind === 'read') {
         current.reads += 1;
       } else {
         current.writes += 1;
       }
-      access.set(entry.path, current);
+      access.set(path, current);
     }
   }
 
@@ -145,81 +146,6 @@ export function summarizeSession(events: ToolEvent[]) {
     toolUsage: countToolUsage(events),
     pathAccess: buildPathAccess(events)
   };
-}
-
-function extractPathsFromEvent(event: ToolEvent): Array<{ path: string; kind: 'read' | 'write' }> {
-  const input = event.input;
-  const results: Array<{ path: string; kind: 'read' | 'write' }> = [];
-
-  const add = (value: unknown, kind: 'read' | 'write') => {
-    if (typeof value === 'string' && value.trim()) {
-      results.push({ path: normalizePath(value), kind });
-    }
-  };
-
-  switch (event.tool) {
-    case 'Read':
-    case 'ReadLints':
-      add(input.path, 'read');
-      add(input.file_path, 'read');
-      if (Array.isArray(input.paths)) {
-        for (const path of input.paths) {
-          add(path, 'read');
-        }
-      }
-      break;
-    case 'Write':
-    case 'StrReplace':
-    case 'Delete':
-    case 'Edit':
-    case 'MultiEdit':
-      add(input.path, 'write');
-      add(input.file_path, 'write');
-      break;
-    case 'Grep':
-    case 'Glob':
-      add(input.path ?? input.target_directory, 'read');
-      break;
-    case 'Shell':
-      add(input.working_directory, 'read');
-      break;
-    default:
-      if (isShellTool(event.tool)) {
-        add(input.working_directory ?? input.workdir ?? input.cwd, 'read');
-      } else if (toolKey(event.tool) === 'view_image') {
-        add(input.path, 'read');
-      } else if (toolKey(event.tool) === 'apply_patch') {
-        for (const path of extractPatchPaths(input.patch)) {
-          add(path, 'write');
-        }
-      }
-      break;
-  }
-
-  return results;
-}
-
-function toolKey(tool: string): string {
-  return (tool.split('.').pop() ?? tool).toLowerCase();
-}
-
-function isShellTool(tool: string): boolean {
-  const key = toolKey(tool);
-  return key === 'shell' || key === 'bash' || key === 'shell_command';
-}
-
-function extractPatchPaths(value: unknown): string[] {
-  if (typeof value !== 'string') {
-    return [];
-  }
-
-  const paths: string[] = [];
-  const pattern = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(value)) !== null) {
-    paths.push(match[1].trim());
-  }
-  return paths;
 }
 
 function isCodexSessionMeta(parsed: TranscriptMessage): boolean {

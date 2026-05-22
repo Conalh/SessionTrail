@@ -50,12 +50,21 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
     const value = argv[index + 1];
 
     if (arg === '--transcript') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --transcript.' };
+      }
       transcriptPath = value;
       index += 1;
     } else if (arg === '--transcript-dir') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --transcript-dir.' };
+      }
       transcriptDir = value;
       index += 1;
     } else if (arg === '--repo') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --repo.' };
+      }
       repoRoot = value;
       index += 1;
     } else if (arg === '--format') {

@@ -9,9 +9,35 @@ export function normalizeRepoRoot(repoRoot: string): string {
 }
 
 export function isPathInsideRepo(repoRoot: string, targetPath: string): boolean {
+  // Unexpanded `~` and `~/...` refer to the user home directory. Node's
+  // path.resolve doesn't expand them — it just tucks them under cwd. When
+  // the action runs with `repo: .`, cwd IS the repo, so without this
+  // short-circuit `~/secret.env` would falsely be classified as in-repo
+  // and every downstream finding would get suppressed.
+  if (isUnexpandedHomePath(targetPath)) {
+    return false;
+  }
+
   const normalizedRoot = normalizeRepoRoot(repoRoot).toLowerCase();
-  const normalizedTarget = normalizePath(resolve(targetPath)).toLowerCase();
+
+  // Absolute-looking targets (Windows drive letter, UNC, POSIX leading
+  // slash) must NOT go through node:path.resolve on a foreign host:
+  // path.posix.resolve('C:/Dev/Demo/x') on Linux returns
+  // '/cwd/C:/Dev/Demo/x', which would falsely match a POSIX repo root.
+  // Compare the path as-given instead.
+  const normalizedTarget = isAbsolutePath(targetPath)
+    ? normalizePath(targetPath).toLowerCase().replace(/\/$/, '')
+    : normalizePath(resolve(targetPath)).toLowerCase();
+
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`);
+}
+
+function isUnexpandedHomePath(value: string): boolean {
+  return value === '~' || value.startsWith('~/') || value.startsWith('~\\');
+}
+
+function isAbsolutePath(value: string): boolean {
+  return /^[a-z]:[\\/]/i.test(value) || value.startsWith('\\\\') || value.startsWith('/');
 }
 
 export function isHomeDirectoryPath(targetPath: string): boolean {
@@ -40,20 +66,45 @@ export function isHomeDirectoryPath(targetPath: string): boolean {
 // Sensitive credential and config locations — accessing any of these
 // during an agent session is materially more dangerous than a generic
 // out-of-repo read and gets its own finding kind.
-const PRIVILEGED_PATH_SEGMENTS = [
-  '.ssh', '.aws', '.gnupg', '.kube', '.docker', '.netrc',
+//
+// Matched as path segments rather than substrings so a relative path like
+// `.ssh/id_rsa` is caught the same way an absolute `/home/u/.ssh/id_rsa`
+// is. `resolve()` would conflate this with `process.cwd()` (where the
+// audit CLI runs, not where the agent ran), so we use a segment regex.
+const PRIVILEGED_DOT_SEGMENTS = [
+  '.ssh', '.aws', '.gnupg', '.kube', '.docker', '.netrc'
+];
+
+const PRIVILEGED_NESTED_SEGMENTS = [
   '.config/gh', '.config/git', '.config/op',
   'appdata/roaming/microsoft/credentials',
-  'localappdata/microsoft/credentials',
+  'localappdata/microsoft/credentials'
+];
+
+const PRIVILEGED_ABSOLUTE_PREFIXES = [
   '/etc/shadow', '/etc/passwd', '/etc/ssh',
   '/private/var', '/private/etc'
 ];
 
 export function isPrivilegedPath(targetPath: string): boolean {
   const normalized = normalizePath(targetPath).toLowerCase();
-  return PRIVILEGED_PATH_SEGMENTS.some((segment) =>
-    normalized.includes(segment.startsWith('/') ? segment : `/${segment}`)
-    || normalized.endsWith(segment)
+
+  for (const segment of PRIVILEGED_DOT_SEGMENTS) {
+    const escaped = segment.replace(/\./g, '\\.');
+    if (new RegExp(`(?:^|/)${escaped}(?:/|$)`).test(normalized)) {
+      return true;
+    }
+  }
+
+  for (const segment of PRIVILEGED_NESTED_SEGMENTS) {
+    const escaped = segment.replace(/\./g, '\\.');
+    if (new RegExp(`(?:^|/)${escaped}(?:/|$)`).test(normalized)) {
+      return true;
+    }
+  }
+
+  return PRIVILEGED_ABSOLUTE_PREFIXES.some((prefix) =>
+    normalized === prefix || normalized.startsWith(`${prefix}/`)
   );
 }
 

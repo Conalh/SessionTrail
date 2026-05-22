@@ -6,7 +6,7 @@ import { detectSessionBehavior } from '../dist/detectors/session-behavior.js';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const pathsModule = await import(pathToFileURL(join(testDir, '..', 'dist', 'paths.js')).href);
-const { isHomeDirectoryPath, isPrivilegedPath, isBroadScanPath } = pathsModule;
+const { isHomeDirectoryPath, isPrivilegedPath, isBroadScanPath, isPathInsideRepo } = pathsModule;
 
 test('isHomeDirectoryPath catches Windows, POSIX, WSL, ~, and agent-metadata roots', () => {
   assert.equal(isHomeDirectoryPath('C:/Users/conno/file.txt'), true);
@@ -29,6 +29,31 @@ test('isPrivilegedPath flags credentials, SSH/AWS/Kube, and sensitive system pat
   assert.equal(isPrivilegedPath('/etc/shadow'), true);
   assert.equal(isPrivilegedPath('/private/var/db/auth.db'), true);
   assert.equal(isPrivilegedPath('C:/Dev/Demo/.env'), false);
+});
+
+test('isPathInsideRepo rejects unexpanded ~ paths even when cwd is inside the repo', () => {
+  // process.cwd() during `npm test` is the package root, which makes this
+  // the exact scenario that previously suppressed every ~/ finding.
+  assert.equal(isPathInsideRepo(process.cwd(), '~/secret.env'), false);
+  assert.equal(isPathInsideRepo(process.cwd(), '~'), false);
+  assert.equal(isPathInsideRepo(process.cwd(), '~/.ssh/id_rsa'), false);
+});
+
+test('isPathInsideRepo treats Windows-absolute targets correctly against POSIX repo roots', () => {
+  // Simulates the GitHub Action running on Ubuntu against a transcript
+  // recorded on Windows. Without the absolute-path short-circuit,
+  // posix.resolve would falsely place the target under the repo root.
+  assert.equal(isPathInsideRepo('/github/workspace', 'C:/Users/conno/outside-repo.txt'), false);
+  assert.equal(isPathInsideRepo('C:/Dev/Demo', 'C:/Dev/Demo/src/file.ts'), true);
+  assert.equal(isPathInsideRepo('C:/Dev/Demo', 'C:/Dev/Other/file.ts'), false);
+});
+
+test('isPrivilegedPath catches relative paths agents might emit', () => {
+  assert.equal(isPrivilegedPath('.ssh/id_rsa'), true);
+  assert.equal(isPrivilegedPath('.aws/credentials'), true);
+  assert.equal(isPrivilegedPath('.config/gh/hosts.yml'), true);
+  assert.equal(isPrivilegedPath('sshfs/notes.md'), false);
+  assert.equal(isPrivilegedPath('docs/ssh-setup.md'), false);
 });
 
 test('isBroadScanPath catches filesystem root, user home root, and top-level data trees', () => {
