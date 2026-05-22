@@ -1,3 +1,4 @@
+import { getCommandHead, tokenizeShell } from 'agent-gov-core';
 import {
   isBroadScanPath,
   isHomeDirectoryPath,
@@ -123,15 +124,18 @@ function detectShell(event: ToolEvent): Finding[] {
     return [];
   }
 
-  const subcommands = splitChainedCommands(command);
+  const subcommands = tokenizeShell(command);
   let highest: 'medium' | 'high' = 'medium';
   for (const sub of subcommands) {
-    const stripped = stripShellObfuscation(sub);
-    if (RISKY_PATTERNS.some((pattern) => pattern.test(stripped))) {
+    // RISKY_PATTERNS still operates on the raw subcommand text because the
+    // patterns describe shapes like `curl ... | sh` that survive light
+    // obfuscation without explicit normalization. getCommandHead handles
+    // the verb-level obfuscation (c""url, c\url, sudo/env wrappers).
+    if (RISKY_PATTERNS.some((pattern) => pattern.test(sub))) {
       highest = 'high';
       break;
     }
-    const head = stripped.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    const head = getCommandHead(sub).toLowerCase();
     if (RISKY_VERBS.has(head)) {
       highest = 'high';
       break;
@@ -149,76 +153,6 @@ function detectShell(event: ToolEvent): Finding[] {
       recommendation: 'Review shell commands for scope and trust boundaries.'
     }
   ];
-}
-
-// Split on shell chain operators ( ; | & && || ) while ignoring matches
-// inside quoted strings. Returns each individual subcommand as a string.
-function splitChainedCommands(command: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | '`' | null = null;
-  let escape = false;
-
-  for (let index = 0; index < command.length; index += 1) {
-    const char = command[index];
-
-    if (escape) {
-      current += char;
-      escape = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      current += char;
-      escape = true;
-      continue;
-    }
-
-    if (quote) {
-      current += char;
-      if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (char === '"' || char === "'" || char === '`') {
-      quote = char;
-      current += char;
-      continue;
-    }
-
-    const next = command[index + 1];
-    if (char === ';' || (char === '|' && next !== '|') || (char === '&' && next !== '&')) {
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    if ((char === '|' && next === '|') || (char === '&' && next === '&')) {
-      parts.push(current);
-      current = '';
-      index += 1;
-      continue;
-    }
-
-    current += char;
-  }
-
-  if (current.trim()) {
-    parts.push(current);
-  }
-
-  return parts;
-}
-
-// Neutralize common quote-stripping obfuscation: c""url, c''url, c\\url.
-// We're not trying to fully deobfuscate — just to make the simplest
-// dodges (which are also the most common in past adversary samples) fail.
-function stripShellObfuscation(command: string): string {
-  return command
-    .replace(/""/g, '')
-    .replace(/''/g, '')
-    .replace(/\\(.)/g, '$1');
 }
 
 function detectMcp(event: ToolEvent): Finding[] {
