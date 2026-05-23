@@ -66,10 +66,34 @@ export async function loadAllowlist(repoRoot: string, configPath?: string): Prom
   return compileAllowlist(parsed);
 }
 
+// Heuristic catastrophic-regex detector. Catches the classic nested-
+// unbounded-quantifier shape (e.g. `(a+)+`, `(a*)*`, `(a*)+`) at
+// compile time by looking for `[*+?]\)[*+]` in the source — an inner
+// quantifier of any kind followed by a close paren followed by an
+// UNBOUNDED outer quantifier (`*` or `+`). The unbounded outer is the
+// load-bearing part: `(\d+)?` has `+)?` but `?` only lets the group
+// match zero or one times, so no exponential blowup. `(\d+)+` and
+// `(\d+)*` are the actual ReDoS shapes.
+//
+// Limitations: heuristic, not a proof. Sophisticated patterns that
+// escape it (specific alternation arrangements, lookaround-driven
+// blowups) can still cause ReDoS. The 4 KB input cap is belt-and-
+// suspenders, and SECURITY.md is explicit that `.sessiontrail.json`
+// is repo-owner-trusted.
+const CATASTROPHIC_SHAPE = /[*+?]\)[*+]/;
+
 export function compileAllowlist(config: AllowlistConfig): CompiledAllowlist {
+  const patterns = (config.benignShellPatterns ?? []).map((source) => {
+    if (CATASTROPHIC_SHAPE.test(source)) {
+      throw new Error(
+        `Refusing to compile benignShellPattern with nested-quantifier shape (potential ReDoS): ${source}`
+      );
+    }
+    return new RegExp(source, 'i');
+  });
   return {
     allowedMcpServers: new Set((config.allowedMcpServers ?? []).map((s) => s.toLowerCase())),
-    benignShellPatterns: (config.benignShellPatterns ?? []).map((source) => new RegExp(source, 'i')),
+    benignShellPatterns: patterns,
     allowedNetworkHosts: (config.allowedNetworkHosts ?? []).map((s) => s.toLowerCase())
   };
 }
@@ -78,8 +102,23 @@ export function isMcpServerAllowed(server: string | undefined, allowlist: Compil
   return typeof server === 'string' && allowlist.allowedMcpServers.has(server.toLowerCase());
 }
 
+// Cap on the input length we hand to user-supplied regexes. The
+// regex SOURCE comes from .sessiontrail.json, which in a CI workflow
+// running on `pull_request` is effectively attacker-controlled — a PR
+// can ship a malicious regex (catastrophic-backtracking shape) along
+// with a long shell command in a transcript and DoS the runner.
+// Truncating the input bounds work per .test() call to O(N * patterns)
+// at worst. Legitimate shell subcommands are well under this cap;
+// anything longer is either machine-generated paste or an attacker
+// trying to make a regex chew on it.
+const MAX_USER_REGEX_INPUT = 4096;
+
 export function isShellSubcommandBenign(sub: string, allowlist: CompiledAllowlist): boolean {
-  return allowlist.benignShellPatterns.some((pattern) => pattern.test(sub));
+  if (allowlist.benignShellPatterns.length === 0) {
+    return false;
+  }
+  const bounded = sub.length > MAX_USER_REGEX_INPUT ? sub.slice(0, MAX_USER_REGEX_INPUT) : sub;
+  return allowlist.benignShellPatterns.some((pattern) => pattern.test(bounded));
 }
 
 export function isNetworkTargetAllowed(target: string | undefined, allowlist: CompiledAllowlist): boolean {

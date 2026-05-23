@@ -36,6 +36,47 @@ test('non-allowed MCP servers stay at medium', () => {
   assert.equal(mcp.severity, 'medium');
 });
 
+test('compileAllowlist rejects nested-quantifier ReDoS shapes at compile time', () => {
+  // `.sessiontrail.json` in a `pull_request`-triggered workflow is
+  // effectively attacker-controlled. A catastrophic-backtracking regex
+  // like `(a+)+` would hang the action when matched against a long
+  // shell command. compileAllowlist now refuses to compile sources
+  // with the canonical nested-quantifier shape — caught at config
+  // load, not at .test() time when the hang would already be in
+  // progress. Test cases cover the four common arrangements.
+  const catastrophicSources = [
+    '(a+)+',
+    '(a*)*',
+    '(a*)+',
+    '(a+)*'
+  ];
+  for (const src of catastrophicSources) {
+    assert.throws(
+      () => compileAllowlist({ benignShellPatterns: [src] }),
+      /nested-quantifier shape \(potential ReDoS\)/,
+      `expected ${src} to be rejected`
+    );
+  }
+});
+
+test('compileAllowlist accepts legitimate patterns that look quantifier-adjacent', () => {
+  // Legitimate patterns must still compile. Group with no quantifier,
+  // alternation, optional group — none have the catastrophic shape.
+  const safeSources = [
+    '^cargo\\s+test',
+    '^deno\\s+task\\s+\\w+$',
+    '(abc)+',
+    '(a|b)+',
+    '(\\d+)?:\\d+'
+  ];
+  for (const src of safeSources) {
+    assert.doesNotThrow(
+      () => compileAllowlist({ benignShellPatterns: [src] }),
+      `expected ${src} to compile`
+    );
+  }
+});
+
 test('allowlisted shell pattern drops a non-risky command to low', () => {
   const allowlist = compileAllowlist({ benignShellPatterns: ['^cargo\\s+test'] });
   const event = {
