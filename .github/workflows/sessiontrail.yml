@@ -5,6 +5,10 @@ on:
 
 permissions:
   contents: read
+  # upload-sarif needs this to push results to Code Scanning. Without
+  # it the upload step fails — exactly the kind of permissions
+  # regression we want CI to catch.
+  security-events: write
 
 jobs:
   behavior-review:
@@ -46,3 +50,13 @@ jobs:
             exit 1
           fi
           echo "rogue session correctly classified critical with $ROGUE_FINDINGS findings"
+
+      # Push the rogue-session SARIF to Code Scanning. Dogfooding the
+      # upload path catches schema regressions that unit tests can't —
+      # if the SARIF we emit ever stops parsing under GitHub's stricter
+      # validator, this step will fail in CI.
+      - name: Upload SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.rogue.outputs.sarif-file }}
+          category: sessiontrail-rogue-fixture
