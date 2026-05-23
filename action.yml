@@ -19,6 +19,10 @@ inputs:
     description: Repository root used to judge in-repo vs out-of-repo behavior. Defaults to GITHUB_WORKSPACE.
     required: false
     default: ''
+  config:
+    description: Path to a SessionTrail allowlist JSON file. Defaults to <repo>/.sessiontrail.json. Use this when the audit repo root isn't where the config lives (e.g. monorepo subdirectory audits).
+    required: false
+    default: ''
   fail-on:
     description: Severity that fails the action. Use none, low, medium, high, or critical.
     required: false
@@ -54,6 +58,7 @@ runs:
         TRAIL_TRANSCRIPT: ${{ inputs.transcript }}
         TRAIL_TRANSCRIPT_DIR: ${{ inputs.transcript-dir }}
         TRAIL_REPO: ${{ inputs.repo }}
+        TRAIL_CONFIG: ${{ inputs.config }}
         TRAIL_FAIL_ON: ${{ inputs.fail-on }}
       run: |
         set -euo pipefail
@@ -61,7 +66,16 @@ runs:
         transcript="${TRAIL_TRANSCRIPT:-}"
         transcript_dir="${TRAIL_TRANSCRIPT_DIR:-}"
         repo="${TRAIL_REPO:-$GITHUB_WORKSPACE}"
+        config="${TRAIL_CONFIG:-}"
         fail_on="${TRAIL_FAIL_ON:-none}"
+
+        # Forward --config when provided. Empty input keeps the CLI's
+        # default <repo>/.sessiontrail.json lookup; explicit input
+        # points at whatever the user passed (useful in monorepos).
+        config_arg=()
+        if [ -n "$config" ]; then
+          config_arg=(--config "$config")
+        fi
 
         if [ -z "$transcript" ] && [ -z "$transcript_dir" ]; then
           echo "::error::SessionTrail needs transcript or transcript-dir input."
@@ -86,6 +100,7 @@ runs:
             --json-out "$json_file" \
             --markdown-out "$report_file" \
             --sarif-out "$sarif_file" \
+            "${config_arg[@]}" \
             --fail-on "$fail_on" || audit_exit=$?
         else
           node "$GITHUB_ACTION_PATH/bundle/index.js" audit \
@@ -94,6 +109,7 @@ runs:
             --json-out "$json_file" \
             --markdown-out "$report_file" \
             --sarif-out "$sarif_file" \
+            "${config_arg[@]}" \
             --fail-on "$fail_on" || audit_exit=$?
         fi
 

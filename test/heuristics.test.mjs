@@ -99,6 +99,42 @@ test('isBroadScanPath catches filesystem root, user home root, and top-level dat
   assert.equal(isBroadScanPath(undefined), false);
 });
 
+test('Codex web.run search_query[].q is extracted as the network target', () => {
+  // Pre-fix, only string-typed input.url and input.search_term were
+  // surfaced; nested array shapes fell through to the literal
+  // "external target" placeholder, making the finding unactionable.
+  const event = {
+    tool: 'web.run',
+    runtime: 'codex',
+    line: 1,
+    turn: 1,
+    input: { search_query: [{ q: 'how to bypass repository allowlist' }] }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const net = findings.find((f) => f.kind === 'session_trail.network_intent');
+  assert.ok(net);
+  assert.match(net.message, /how to bypass repository allowlist/);
+  assert.equal(net.data.target, 'how to bypass repository allowlist');
+});
+
+test('MCP tool_name alias is read alongside camelCase toolName', () => {
+  // Claude Code emits `toolName`; Codex and the JSON-RPC MCP spec use
+  // `tool_name`. Both should produce a named finding, not `unknown`.
+  const event = {
+    tool: 'CallMCPTool',
+    runtime: 'codex',
+    line: 1,
+    turn: 1,
+    input: { server_name: 'github-pr-helper', tool_name: 'create_review' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event]);
+  const mcp = findings.find((f) => f.kind === 'session_trail.mcp_tool_invoked');
+  assert.ok(mcp);
+  assert.equal(mcp.data.server, 'github-pr-helper');
+  assert.equal(mcp.data.tool, 'create_review');
+  assert.doesNotMatch(mcp.message, /unknown/);
+});
+
 test('shell command referencing a privileged path emits a critical finding', () => {
   // `cat /home/u/.ssh/id_rsa` used to slip past the path-access detector
   // because shell tool inputs only carry a command string, not a path.

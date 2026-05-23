@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { normalizePath } from './paths.js';
-import { collectEventPaths } from './tool-paths.js';
+import { collectEventPaths, extractShellPaths, isShellTool } from './tool-paths.js';
 import type { AgentRuntime, ToolEvent } from './types.js';
 
 interface TranscriptMessage {
@@ -166,17 +166,31 @@ function countRuntimeUsage(events: ToolEvent[]): Record<AgentRuntime, number> {
 
 export function buildPathAccess(events: ToolEvent[]): Array<{ path: string; reads: number; writes: number }> {
   const access = new Map<string, { path: string; reads: number; writes: number }>();
+  const bump = (rawPath: string, kind: 'read' | 'write') => {
+    const path = normalizePath(rawPath);
+    const current = access.get(path) ?? { path, reads: 0, writes: 0 };
+    if (kind === 'read') {
+      current.reads += 1;
+    } else {
+      current.writes += 1;
+    }
+    access.set(path, current);
+  };
 
   for (const event of events) {
     for (const entry of collectEventPaths(event)) {
-      const path = normalizePath(entry.path);
-      const current = access.get(path) ?? { path, reads: 0, writes: 0 };
-      if (entry.kind === 'read') {
-        current.reads += 1;
-      } else {
-        current.writes += 1;
+      bump(entry.path, entry.kind);
+    }
+    // Shell-extracted paths previously only showed up as findings — the
+    // heat map missed them, so a `cat /home/u/.ssh/id_rsa` left no
+    // evidence in the heat-map section even though it produced a
+    // privileged-path finding. Counted as reads (extraction can't
+    // distinguish read from write in a shell command body).
+    if (isShellTool(event.tool)) {
+      const command = typeof event.input.command === 'string' ? event.input.command : '';
+      for (const shellPath of extractShellPaths(command)) {
+        bump(shellPath, 'read');
       }
-      access.set(path, current);
     }
   }
 
@@ -272,7 +286,13 @@ async function listJsonlFiles(directory: string, current = ''): Promise<string[]
   const entries = await readdir(join(directory, current), { withFileTypes: true });
   const files: string[] = [];
 
-  for (const entry of entries) {
+  // readdir order is filesystem-dependent — sorting by name gives
+  // stable finding order and stable diffs across platforms / runs.
+  // Lexicographic sort is fine here; we're not aiming for natural
+  // sort of numeric suffixes, just determinism.
+  const sortedEntries = [...entries].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const entry of sortedEntries) {
     const relativePath = current ? `${current}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       files.push(...(await listJsonlFiles(directory, relativePath)));

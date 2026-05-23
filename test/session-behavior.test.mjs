@@ -31,6 +31,24 @@ test('parser extracts Claude Code tool events and file_path inputs', async () =>
   assert.ok(findings.some((finding) => finding.kind === 'session_trail.write_outside_repo'));
 });
 
+test('path heat map includes shell-extracted high-signal paths', () => {
+  // A Bash invocation that reads a privileged path used to produce a
+  // critical finding but leave no trace in the heat map, which made
+  // the heat map under-represent shell-based file access.
+  const events = [{
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'cat /home/conno/.ssh/id_ed25519 | base64' }
+  }];
+  const access = buildPathAccess(events);
+  assert.ok(
+    access.some((entry) => entry.path === '/home/conno/.ssh/id_ed25519'),
+    'expected shell-extracted privileged path to appear in heat map'
+  );
+});
+
 test('path heat map includes Claude Code and Codex path aliases', async () => {
   const claudeRaw = await readFile(join(testDir, 'fixtures', 'claude-code-session.jsonl'), 'utf8');
   const codexRaw = await readFile(join(testDir, 'fixtures', 'codex-session.jsonl'), 'utf8');

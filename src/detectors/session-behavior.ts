@@ -311,8 +311,19 @@ function detectMcp(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] {
     return [];
   }
 
-  const server = typeof event.input.server === 'string' ? event.input.server : 'unknown';
-  const toolName = typeof event.input.toolName === 'string' ? event.input.toolName : 'unknown';
+  // MCP payload shapes vary across runtimes: Claude Code emits camelCase
+  // `toolName`, Codex (and the JSON-RPC MCP spec) uses snake_case
+  // `tool_name`. Likewise `server` vs `server_name`. Read all known
+  // aliases so findings are actionable regardless of source format.
+  const server =
+    (typeof event.input.server === 'string' && event.input.server) ||
+    (typeof event.input.server_name === 'string' && event.input.server_name) ||
+    'unknown';
+  const toolName =
+    (typeof event.input.toolName === 'string' && event.input.toolName) ||
+    (typeof event.input.tool_name === 'string' && event.input.tool_name) ||
+    (typeof event.input.name === 'string' && event.input.name) ||
+    'unknown';
   // Allowlisted MCP servers stay visible (we don't suppress) but drop
   // to 'low' so they don't trip --fail-on medium. A meta-reviewer can
   // still see the invocation in data; the user opted in.
@@ -335,12 +346,7 @@ function detectNetwork(event: ToolEvent, allowlist: CompiledAllowlist): Finding[
     return [];
   }
 
-  const target =
-    typeof event.input.url === 'string'
-      ? event.input.url
-      : typeof event.input.search_term === 'string'
-        ? event.input.search_term
-        : 'external target';
+  const target = extractNetworkTarget(event.input);
   const severity = isNetworkTargetAllowed(target, allowlist) ? 'low' : 'medium';
 
   return [createFinding({
@@ -426,6 +432,38 @@ function truncate(value: string, max: number): string {
   }
 
   return `${value.slice(0, max - 3)}...`;
+}
+
+// Pulls the actionable target out of a network tool's input. WebFetch
+// gives us a URL; WebSearch gives us a search_term; Codex web.run uses
+// nested arrays — search_query[].q, image_query[].q, open[].ref_id.
+// Returning the literal "external target" placeholder when nothing
+// matches makes findings unactionable, so we cover the known shapes.
+function extractNetworkTarget(input: Record<string, unknown>): string {
+  if (typeof input.url === 'string') return input.url;
+  if (typeof input.search_term === 'string') return input.search_term;
+  if (typeof input.query === 'string') return input.query;
+
+  const firstQ = firstStringInArrayField(input.search_query, 'q')
+    ?? firstStringInArrayField(input.image_query, 'q');
+  if (firstQ) return firstQ;
+
+  const firstRef = firstStringInArrayField(input.open, 'ref_id')
+    ?? firstStringInArrayField(input.open, 'url');
+  if (firstRef) return firstRef;
+
+  return 'external target';
+}
+
+function firstStringInArrayField(value: unknown, field: string): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  for (const entry of value) {
+    if (entry && typeof entry === 'object') {
+      const v = (entry as Record<string, unknown>)[field];
+      if (typeof v === 'string' && v.trim()) return v;
+    }
+  }
+  return undefined;
 }
 
 function isMcpTool(tool: string): boolean {
