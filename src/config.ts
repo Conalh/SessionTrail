@@ -35,12 +35,19 @@ const EMPTY: CompiledAllowlist = {
   allowedNetworkHosts: []
 };
 
-export async function loadAllowlist(repoRoot: string): Promise<CompiledAllowlist> {
+export async function loadAllowlist(repoRoot: string, configPath?: string): Promise<CompiledAllowlist> {
+  // Explicit --config path bypasses the default <repo>/.sessiontrail.json
+  // lookup. When the user passes --config, missing-file is an ERROR
+  // (they asked for a specific file) — only the auto-discovery path
+  // silently falls back to empty when no config exists.
+  const resolvedPath = configPath ?? join(repoRoot, '.sessiontrail.json');
+  const allowMissing = configPath === undefined;
+
   let raw: string;
   try {
-    raw = await readFile(join(repoRoot, '.sessiontrail.json'), 'utf8');
+    raw = await readFile(resolvedPath, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') {
       return EMPTY;
     }
     throw error;
@@ -53,7 +60,7 @@ export async function loadAllowlist(repoRoot: string): Promise<CompiledAllowlist
     // A malformed config file is a user mistake worth surfacing —
     // silently ignoring it could mask an allowlist that didn't take
     // effect because of a typo.
-    throw new Error(`Failed to parse .sessiontrail.json: ${(error as Error).message}`);
+    throw new Error(`Failed to parse ${resolvedPath}: ${(error as Error).message}`);
   }
 
   return compileAllowlist(parsed);

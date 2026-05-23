@@ -203,18 +203,19 @@ jobs:
 
 ## Current Findings
 
-SessionTrail v0 detects:
+SessionTrail detects:
 
 - Reads outside the declared repository root.
 - Writes outside the declared repository root.
-- Privileged path access (`.ssh`, `.aws`, `.kube`, `.gnupg`, `/etc/shadow`, `/private/var`) — emitted as a separate `critical` finding.
+- Privileged path access (`.ssh`, `.aws`, `.kube`, `.gnupg`, `/etc/shadow`, `/private/var`) — emitted as a separate `critical` finding. Also caught when referenced inside shell commands (e.g. `cat /home/u/.ssh/id_rsa`).
 - Home directory and agent-metadata access (`.cursor`, `.codex`, `.claude`, `.aider`, `.continue`, `.vscode-server`) — Windows, POSIX, WSL (`\\wsl$\`, `\\wsl.localhost\`), and unexpanded `~` paths.
 - Cross-session transcript reads.
-- Shell command invocations — chained pipelines (`;`, `|`, `&&`, `||`) are split and each branch is scored independently; trivial quote-obfuscation (`c""url`, `c''url`, `c\\url`) is neutralized before matching.
+- Shell command invocations — chained pipelines (`;`, `|`, `&&`, `||`) are split and each branch is scored independently; trivial quote-obfuscation (`c""url`, `c''url`, `c\\url`) is neutralized before matching. Neutral setup verbs (`cd`, `export`, `source`) don't contribute to severity; built-in benign verbs (`git status`, `npm test`, `pwd`) and allowlisted patterns drop to `low`.
 - MCP tool invocations.
 - External network intent via `WebFetch` or `WebSearch`.
 - Subagent spawns via `Task`.
 - Broad scans of user roots, filesystem root, and top-level data trees (`Documents`, `Downloads`, etc.) via `Glob` or `Grep`.
+- Parser skips — a `low`-severity finding fires when the transcript contained lines that couldn't be parsed, so `--fail-on low` catches truncated transcripts.
 
 ## Complements the Suite
 

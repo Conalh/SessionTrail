@@ -11,8 +11,8 @@ import { createReport, type SessionReport } from './report.js';
 import type { Finding } from './types.js';
 
 export type AuditInput =
-  | { mode: 'transcript'; transcriptPath: string; repoRoot: string }
-  | { mode: 'directory'; transcriptDir: string; repoRoot: string };
+  | { mode: 'transcript'; transcriptPath: string; repoRoot: string; configPath?: string }
+  | { mode: 'directory'; transcriptDir: string; repoRoot: string; configPath?: string };
 
 export async function runSessionAudit(options: AuditInput): Promise<SessionReport> {
   const parsed =
@@ -20,7 +20,11 @@ export async function runSessionAudit(options: AuditInput): Promise<SessionRepor
       ? await loadTranscriptEventsWithStats(options.transcriptPath)
       : await loadTranscriptDirectoryWithStats(options.transcriptDir);
 
-  const allowlist = await loadAllowlist(options.repoRoot);
+  // --config overrides the default `<repo>/.sessiontrail.json` lookup.
+  // Useful in monorepos where the audit repo root isn't where the
+  // allowlist lives, or in Action setups that point at a workspace
+  // subdirectory.
+  const allowlist = await loadAllowlist(options.repoRoot, options.configPath);
   const summary = summarizeSession(parsed.events);
   const transcriptPath = options.mode === 'transcript' ? options.transcriptPath : options.transcriptDir;
   const findings: Finding[] = [

@@ -10,6 +10,10 @@ import { dirname, join } from 'node:path';
 const execFileAsync = promisify(execFile);
 const testDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(testDir, '..');
+// Synthetic classification anchor. --repo isn't required to exist on
+// the audit host (cross-environment workflows audit Windows transcripts
+// on Linux runners), so the path here is intentionally a Windows-style
+// string the fixtures' paths can be classified against.
 const REPO = 'C:/Dev/Demo';
 
 test('CLI returns none for benign session transcript', async () => {
@@ -194,6 +198,54 @@ test('CLI --sarif-out writes SARIF to file alongside other formats', async () =>
     const sarif = JSON.parse(await readFile(sarifPath, 'utf8'));
     assert.equal(sarif.version, '2.1.0');
     assert.ok(sarif.runs[0].results.length > 0);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('CLI bails with exit 2 when --transcript file is missing', async () => {
+  await assert.rejects(
+    execFileAsync(
+      process.execPath,
+      ['dist/index.js', 'audit', '--transcript', '/nope/does/not/exist.jsonl', '--repo', REPO, '--format', 'json'],
+      { cwd: packageRoot }
+    ),
+    (error) => {
+      assert.equal(error.code, 2);
+      assert.match(error.stderr, /--transcript file does not exist/);
+      return true;
+    }
+  );
+});
+
+test('CLI --config flag points the allowlist away from <repo>/.sessiontrail.json', async () => {
+  const transcript = join(testDir, 'fixtures', 'rogue-session.jsonl');
+  const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-config-'));
+  const configPath = join(tempDir, 'custom.json');
+  try {
+    // Use the demo repo path but a config file that doesn't sit at that
+    // repo's root. Allowlist the cursor-app-control MCP so its finding
+    // drops to low; if the override worked, the rogue MCP finding will
+    // be low instead of medium.
+    await (await import('node:fs/promises')).writeFile(
+      configPath,
+      JSON.stringify({ allowedMcpServers: ['cursor-app-control'] })
+    );
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        'dist/index.js', 'audit',
+        '--transcript', transcript,
+        '--repo', REPO,
+        '--config', configPath,
+        '--format', 'json'
+      ],
+      { cwd: packageRoot }
+    );
+    const report = JSON.parse(stdout);
+    const mcp = report.findings.find((f) => f.kind === 'session_trail.mcp_tool_invoked');
+    assert.ok(mcp, 'expected an mcp_tool_invoked finding');
+    assert.equal(mcp.severity, 'low', '--config allowlist should have lowered severity');
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

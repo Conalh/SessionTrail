@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { writeFile } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { passesSeverityThreshold } from 'agent-gov-core';
 import { runSessionAudit } from './audit.js';
@@ -31,10 +31,19 @@ async function runAuditCommand(argv: string[]): Promise<number> {
     return 2;
   }
 
+  // Fast input validation. Without these checks, the failure mode was a
+  // stack trace (file missing) or an empty report (repo missing) — both
+  // user-hostile. Bail with exit 2 and a one-line message instead.
+  const validation = await validateInputs(parsed);
+  if (validation) {
+    process.stderr.write(`${validation}\n`);
+    return 2;
+  }
+
   const report =
     parsed.mode === 'transcript'
-      ? await runSessionAudit({ mode: 'transcript', transcriptPath: parsed.transcriptPath, repoRoot: parsed.repoRoot })
-      : await runSessionAudit({ mode: 'directory', transcriptDir: parsed.transcriptDir, repoRoot: parsed.repoRoot });
+      ? await runSessionAudit({ mode: 'transcript', transcriptPath: parsed.transcriptPath, repoRoot: parsed.repoRoot, configPath: parsed.configPath })
+      : await runSessionAudit({ mode: 'directory', transcriptDir: parsed.transcriptDir, repoRoot: parsed.repoRoot, configPath: parsed.configPath });
 
   // Side outputs land in files; the chosen --format still goes to stdout
   // so consumers like the GitHub Action can stream annotations directly.
@@ -70,7 +79,53 @@ interface AuditFlags {
   jsonOut?: string;
   markdownOut?: string;
   sarifOut?: string;
+  configPath?: string;
   failOn: FailOn;
+}
+
+async function validateInputs(
+  parsed: Extract<ParsedAuditArgs, { ok: true }>
+): Promise<string | undefined> {
+  // --repo is intentionally NOT validated. It's a classification anchor,
+  // not a directory we read: a Windows-recorded transcript can be
+  // audited against a synthetic `C:/Dev/Demo` repo root on a Linux
+  // runner where that path doesn't exist as a real directory. The path
+  // comparison logic still works (string-level normalization), so
+  // requiring the directory to exist would block a legitimate
+  // cross-environment audit workflow.
+
+  if (parsed.mode === 'transcript') {
+    try {
+      const stats = await stat(parsed.transcriptPath);
+      if (!stats.isFile()) {
+        return `--transcript path is not a file: ${parsed.transcriptPath}`;
+      }
+    } catch {
+      return `--transcript file does not exist: ${parsed.transcriptPath}`;
+    }
+  } else {
+    try {
+      const stats = await stat(parsed.transcriptDir);
+      if (!stats.isDirectory()) {
+        return `--transcript-dir is not a directory: ${parsed.transcriptDir}`;
+      }
+    } catch {
+      return `--transcript-dir does not exist: ${parsed.transcriptDir}`;
+    }
+  }
+
+  if (parsed.configPath) {
+    try {
+      const stats = await stat(parsed.configPath);
+      if (!stats.isFile()) {
+        return `--config path is not a file: ${parsed.configPath}`;
+      }
+    } catch {
+      return `--config file does not exist: ${parsed.configPath}`;
+    }
+  }
+
+  return undefined;
 }
 
 type ParsedAuditArgs =
@@ -86,6 +141,7 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   let jsonOut: string | undefined;
   let markdownOut: string | undefined;
   let sarifOut: string | undefined;
+  let configPath: string | undefined;
   let failOn: FailOn = 'none';
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -134,6 +190,12 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
       }
       sarifOut = value;
       index += 1;
+    } else if (arg === '--config') {
+      if (typeof value !== 'string') {
+        return { ok: false, error: 'Missing value for --config.' };
+      }
+      configPath = value;
+      index += 1;
     } else if (arg === '--fail-on') {
       if (!isFailOn(value)) {
         return { ok: false, error: `Invalid fail-on value: ${value ?? ''}. Use none, low, medium, high, or critical.` };
@@ -150,14 +212,14 @@ function parseAuditArgs(argv: string[]): ParsedAuditArgs {
   }
 
   if (transcriptDir) {
-    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut, sarifOut, failOn };
+    return { ok: true, mode: 'directory', transcriptDir, repoRoot, format, jsonOut, markdownOut, sarifOut, configPath, failOn };
   }
 
   if (!transcriptPath) {
     return { ok: false, error: 'Missing required --transcript <path> or --transcript-dir <dir> argument.' };
   }
 
-  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut, sarifOut, failOn };
+  return { ok: true, mode: 'transcript', transcriptPath, repoRoot, format, jsonOut, markdownOut, sarifOut, configPath, failOn };
 }
 
 function isReportFormat(value: string | undefined): value is ReportFormat {
@@ -191,6 +253,7 @@ function usage(): string {
     '  --json-out <path>                         Also write JSON report to <path>',
     '  --markdown-out <path>                     Also write Markdown report to <path>',
     '  --sarif-out <path>                        Also write SARIF 2.1.0 report to <path>',
+    '  --config <path>                           Allowlist file (default: <repo>/.sessiontrail.json)',
     '  --fail-on none|low|medium|high|critical   Exit 1 if rating meets threshold (default: none)'
   ].join('\n');
 }

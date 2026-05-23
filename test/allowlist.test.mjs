@@ -118,7 +118,7 @@ test('loadAllowlist throws on malformed .sessiontrail.json', async () => {
   const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-cfg-'));
   try {
     await writeFile(join(tempDir, '.sessiontrail.json'), '{ this is not json');
-    await assert.rejects(loadAllowlist(tempDir), /Failed to parse \.sessiontrail\.json/);
+    await assert.rejects(loadAllowlist(tempDir), /Failed to parse .*\.sessiontrail\.json/);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
