@@ -27,8 +27,8 @@ test('CLI returns none for benign session transcript', async () => {
   const report = JSON.parse(stdout);
 
   assert.equal(report.rating, 'none');
-  assert.equal(report.findingCount, 0);
-  assert.ok(report.toolInvocationCount >= 3);
+  assert.equal(report.findings.length, 0);
+  assert.ok(report.data.toolInvocationCount >= 3);
 });
 
 test('CLI flags rogue session behavior', async () => {
@@ -42,12 +42,12 @@ test('CLI flags rogue session behavior', async () => {
   const report = JSON.parse(stdout);
 
   assert.equal(report.rating, 'critical');
-  assert.ok(report.findingCount >= 6);
-  assert.ok(report.behaviorSummary.length >= 4);
+  assert.ok(report.findings.length >= 6);
+  assert.ok(report.data.behaviorSummary.length >= 4);
   assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.write_outside_repo'));
   assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.shell_command_invoked'));
   assert.ok(report.findings.some((finding) => finding.kind === 'session_trail.transcript_cross_read'));
-  assert.ok(report.pathHeatMap.length >= 3);
+  assert.ok(report.data.pathHeatMap.length >= 3);
 });
 
 test('Markdown heat map shows (+N more) when truncated past 12 entries', async () => {

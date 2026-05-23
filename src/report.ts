@@ -1,4 +1,9 @@
-import { emitFindingAnnotation, generateWorkflowSummary } from 'agent-gov-core';
+import {
+  createReport as createCanonicalReport,
+  emitFindingAnnotation,
+  generateWorkflowSummary,
+  type Report as CanonicalReport,
+} from 'agent-gov-core';
 import type { ParseStats } from './transcript.js';
 import type { AgentRuntime, Finding, PathAccess, Severity, ToolEvent } from './types.js';
 
@@ -73,9 +78,35 @@ export function createReport(
   };
 }
 
+/**
+ * Project a SessionTrail-internal {@link SessionReport} into the canonical
+ * agent-gov-core {@link CanonicalReport} envelope. Used at the JSON
+ * serialization boundary so cross-tool meta-reviewers (GovVerdict) ingest
+ * one shape across the whole suite. SessionTrail-specific top-level fields
+ * move under `Report.data`. Per-finding shape is unchanged because
+ * SessionTrail already emits the canonical {@link Finding} from
+ * agent-gov-core directly. Internal markdown / text / GitHub annotation /
+ * SARIF renderers continue to consume `SessionReport` directly.
+ */
+export function toCanonicalReport(report: SessionReport): CanonicalReport {
+  return createCanonicalReport({
+    tool: 'session_trail',
+    findings: report.findings,
+    data: {
+      toolInvocationCount: report.toolInvocationCount,
+      uniqueToolCount: report.uniqueToolCount,
+      runtimeUsage: report.runtimeUsage,
+      behaviorSummary: report.behaviorSummary,
+      toolUsage: report.toolUsage,
+      pathHeatMap: report.pathHeatMap,
+      parseStats: report.parseStats,
+    },
+  });
+}
+
 export function renderReport(report: SessionReport, format: ReportFormat): string {
   if (format === 'json') {
-    return `${JSON.stringify(report, null, 2)}\n`;
+    return `${JSON.stringify(toCanonicalReport(report), null, 2)}\n`;
   }
 
   if (format === 'markdown') {

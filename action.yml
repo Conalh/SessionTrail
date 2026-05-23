@@ -122,10 +122,10 @@ runs:
         # jq is pre-installed on GitHub-hosted runners; one short invocation
         # per scalar beats spawning node five times.
         rating="$(jq -r '.rating' "$json_file")"
-        finding_count="$(jq -r '.findingCount' "$json_file")"
-        tool_invocation_count="$(jq -r '.toolInvocationCount' "$json_file")"
-        unique_tool_count="$(jq -r '.uniqueToolCount' "$json_file")"
-        runtime_count="$(jq -r '[(.runtimeUsage // {}) | to_entries[] | select(.value > 0)] | length' "$json_file")"
+        finding_count="$(jq -r '.findings | length' "$json_file")"
+        tool_invocation_count="$(jq -r '.data.toolInvocationCount' "$json_file")"
+        unique_tool_count="$(jq -r '.data.uniqueToolCount' "$json_file")"
+        runtime_count="$(jq -r '[(.data.runtimeUsage // {}) | to_entries[] | select(.value > 0)] | length' "$json_file")"
         echo "rating=$rating" >> "$GITHUB_OUTPUT"
         echo "finding-count=$finding_count" >> "$GITHUB_OUTPUT"
         echo "tool-invocation-count=$tool_invocation_count" >> "$GITHUB_OUTPUT"
