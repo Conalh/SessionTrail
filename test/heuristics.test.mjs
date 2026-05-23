@@ -202,6 +202,59 @@ test('collectEventPaths normalizes tool name casing and namespacing', async () =
   }
 });
 
+test('network-touching git/npm verbs are no longer benign', () => {
+  // `git pull` mutates the working tree and hits the network; `npm
+  // view` queries the registry. Treating them as low silently dropped
+  // them out of --fail-on medium scope. They should stay at medium.
+  const cases = [
+    { command: 'git fetch origin', expected: 'medium' },
+    { command: 'git pull --rebase', expected: 'medium' },
+    { command: 'npm view some-package', expected: 'medium' },
+    { command: 'npm outdated', expected: 'medium' }
+  ];
+  for (const c of cases) {
+    const event = {
+      tool: 'Bash',
+      runtime: 'claude-code',
+      line: 1,
+      turn: 1,
+      input: { command: c.command }
+    };
+    const shell = detectSessionBehavior('C:/Dev/Demo', [event])
+      .find((f) => f.kind === 'session_trail.shell_command_invoked');
+    assert.equal(shell.severity, c.expected, `${c.command} should be ${c.expected}`);
+  }
+});
+
+test('source / . are not neutral (they execute the script body)', () => {
+  // `source script.sh` runs arbitrary code from the script. Previously
+  // listed as neutral, which meant `cd && source setup.sh && exit`
+  // stayed low. Now `source` falls through to medium since it's not
+  // benign or risky-by-verb but is non-trivial.
+  const event = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'source scripts/setup.sh' }
+  };
+  const shell = detectSessionBehavior('C:/Dev/Demo', [event])
+    .find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.equal(shell.severity, 'medium');
+
+  // Same for the `.` builtin alias.
+  const dotEvent = {
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: '. scripts/setup.sh' }
+  };
+  const dotShell = detectSessionBehavior('C:/Dev/Demo', [dotEvent])
+    .find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.equal(dotShell.severity, 'medium');
+});
+
 test('benign shell commands downgrade to low severity', () => {
   const event = {
     tool: 'Bash',

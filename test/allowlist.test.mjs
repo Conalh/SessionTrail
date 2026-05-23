@@ -82,6 +82,56 @@ test('allowed network host drops the finding to low severity', () => {
   assert.equal(net.severity, 'low');
 });
 
+test('allowed network host matches subdomains via suffix-with-dot rule', () => {
+  // `api.internal.example.com` is a legitimate subdomain of the
+  // allowlisted host — should still drop to low.
+  const allowlist = compileAllowlist({ allowedNetworkHosts: ['internal.example.com'] });
+  const event = {
+    tool: 'WebFetch',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { url: 'https://api.internal.example.com/v1/things' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event], allowlist);
+  const net = findings.find((f) => f.kind === 'session_trail.network_intent');
+  assert.equal(net.severity, 'low');
+});
+
+test('allowed network host does NOT match attacker-controlled lookalike hosts', () => {
+  // Pre-fix, substring matching would have allowed this host because
+  // the URL string contains the allowlisted pattern. The fix uses
+  // hostname parsing + exact-or-suffix match, so this stays medium.
+  const allowlist = compileAllowlist({ allowedNetworkHosts: ['internal.example.com'] });
+  const event = {
+    tool: 'WebFetch',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { url: 'https://internal.example.com.evil.test/exfil' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event], allowlist);
+  const net = findings.find((f) => f.kind === 'session_trail.network_intent');
+  assert.equal(net.severity, 'medium', 'lookalike host must not be allowlisted');
+});
+
+test('non-URL targets (search terms) cannot trip the network host allowlist', () => {
+  // WebSearch with a search_term that contains the allowlisted host as
+  // text must not be auto-allowed. Hostname extraction fails on a
+  // non-URL string, so the allowlist returns false → stays medium.
+  const allowlist = compileAllowlist({ allowedNetworkHosts: ['internal.example.com'] });
+  const event = {
+    tool: 'WebSearch',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { search_term: 'how to query internal.example.com' }
+  };
+  const findings = detectSessionBehavior('C:/Dev/Demo', [event], allowlist);
+  const net = findings.find((f) => f.kind === 'session_trail.network_intent');
+  assert.equal(net.severity, 'medium');
+});
+
 test('loadAllowlist returns empty config when .sessiontrail.json is missing', async () => {
   const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-cfg-'));
   try {

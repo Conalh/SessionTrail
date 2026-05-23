@@ -83,9 +83,28 @@ export function isShellSubcommandBenign(sub: string, allowlist: CompiledAllowlis
 }
 
 export function isNetworkTargetAllowed(target: string | undefined, allowlist: CompiledAllowlist): boolean {
-  if (typeof target !== 'string') {
+  if (typeof target !== 'string' || allowlist.allowedNetworkHosts.length === 0) {
     return false;
   }
-  const lowered = target.toLowerCase();
-  return allowlist.allowedNetworkHosts.some((host) => lowered.includes(host));
+
+  // Parse the URL and match against the hostname only, with an exact
+  // or suffix-with-dot rule. Substring matching used to be the rule
+  // and it had a homoglyph hazard: an attacker-controlled host like
+  // `internal.example.com.evil.test` substring-matches the allowlist
+  // entry `internal.example.com` and gets auto-trusted. Anchored host
+  // matching closes that.
+  //
+  // If the target isn't a parseable URL (e.g. a WebSearch search term),
+  // host matching can't apply — we can't safely allow it without a
+  // host, so we don't.
+  let host: string;
+  try {
+    host = new URL(target).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+
+  return allowlist.allowedNetworkHosts.some(
+    (pattern) => host === pattern || host.endsWith(`.${pattern}`)
+  );
 }

@@ -206,15 +206,18 @@ const RISKY_PATTERNS: RegExp[] = [
 // Quiet, side-effect-free repo introspection that's nearly always noise
 // in audits. Downgrading from medium → low keeps them visible in the
 // step summary without tripping --fail-on at low/medium thresholds.
-// Conservative on purpose: anything with side effects (install, build,
-// run) or anything that could exfiltrate (cat, ls, echo of secrets)
-// stays at medium. The shell path-extraction pass above still catches
+// Conservative on purpose: anything that hits the network (`git fetch`,
+// `npm view`), mutates state (`git pull`, `npm version`), runs
+// arbitrary code (`npm test` still here only because it's idiomatic CI
+// noise — users with stricter posture should rely on --fail-on
+// thresholds), or could exfiltrate (cat, ls, echo of secrets) is
+// excluded. The shell path-extraction pass above still catches
 // credential exfiltration if any of these are misused with privileged
 // arguments — benign verb doesn't whitelist a privileged target.
 const BENIGN_PATTERNS: RegExp[] = [
-  /^npm\s+(?:test|version|outdated|view|info|list|ls|root)\b/i,
-  /^(?:yarn|pnpm)\s+(?:test|version|info|why|list|ls)\b/i,
-  /^git\s+(?:status|log|diff|show|branch|tag|fetch|pull|remote|config\s+--get|rev-parse)\b/i,
+  /^npm\s+(?:test|list|ls|root)\b/i,
+  /^(?:yarn|pnpm)\s+(?:test|why|list|ls)\b/i,
+  /^git\s+(?:status|log|diff|show|branch|tag|remote|config\s+--get|rev-parse)\b/i,
   /^(?:pwd|whoami|id|uname|hostname|date|tty|which|where)\b/i,
 ];
 
@@ -222,11 +225,11 @@ const BENIGN_PATTERNS: RegExp[] = [
 // invoke external code. In a chain like `cd src && npm test`, `cd src`
 // shouldn't bump severity to medium just because it's not in the benign
 // list — it's a neutral setup step. Stripped from the ladder entirely.
-// `eval` is intentionally NOT here (executes arbitrary code).
+// `eval`, `source`, and `.` are intentionally NOT here — they all
+// execute arbitrary code (sourcing a script runs whatever's in it).
 const NEUTRAL_VERBS = new Set([
   'cd', 'pushd', 'popd',
   'export', 'unset', 'set',
-  'source', '.',
   ':', 'true', 'false'  // no-op shell builtins
 ]);
 
