@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Conalh/SessionTrail)](https://github.com/Conalh/SessionTrail/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Runtime behavior review for AI agent sessions.
+**Catch agents reading credentials, calling unknown MCP servers, or piping `curl` to shell — from their own transcripts, no hosted scanner.**
 
 SessionTrail is a free OSS CLI and GitHub Action that parses Cursor, Claude Code, and Codex transcripts and flags risky **runtime behavior intent** during a session.
 
