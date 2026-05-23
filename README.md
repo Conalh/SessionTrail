@@ -14,7 +14,7 @@ SessionTrail is a free OSS CLI and GitHub Action that parses Cursor, Claude Code
 - Home-directory and cross-session transcript access
 - Shell commands, MCP tool calls, and external network intent
 - Path heat map and behavior summary in Markdown/JSON output
-- Terminal, Markdown, JSON, and GitHub annotation output
+- Terminal, Markdown, JSON, GitHub annotation, and SARIF 2.1.0 output (uploadable to GitHub Code Scanning)
 - Runtime summary across multiple agent families in one PR review
 
 It is intentionally not a hosted scanner. SessionTrail reads local transcript files, uploads nothing by default, and starts advisory with `fail-on: none`.
