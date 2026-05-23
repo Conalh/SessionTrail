@@ -43,7 +43,8 @@ const SUMMARY_LABELS: Record<string, string> = {
   'session_trail.mcp_tool_invoked': 'MCP tool invocations',
   'session_trail.network_intent': 'external network requests',
   'session_trail.subagent_spawned': 'subagent spawns',
-  'session_trail.broad_path_scan': 'broad home-directory scans'
+  'session_trail.broad_path_scan': 'broad home-directory scans',
+  'session_trail.parse_lines_skipped': 'malformed transcript lines skipped'
 };
 
 export function createReport(

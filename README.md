@@ -81,6 +81,7 @@ CLI options:
 - `--json-out <path>` — also write the JSON report to a file. Combine with `--format github` so the action streams annotations to stdout while side-outputting JSON.
 - `--markdown-out <path>` — also write the Markdown report to a file.
 - `--sarif-out <path>` — also write a SARIF 2.1.0 report to a file. Uploadable to GitHub Code Scanning via `github/codeql-action/upload-sarif`.
+- `--config <path>` — override the default `<repo>/.sessiontrail.json` allowlist lookup. Useful in monorepos where the audit repo root isn't where the config lives.
 - `--fail-on none|low|medium|high|critical` — exit 1 when the session rating meets or exceeds the threshold (default: `none`). Uses the same severity ladder as the GitHub Action.
 
 ### Allowlist (`.sessiontrail.json`)
@@ -126,7 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: Conalh/SessionTrail@v0.3.0
+      - uses: Conalh/SessionTrail@v0.4.0
         with:
           transcript: path/to/session.jsonl
           repo: .
@@ -156,7 +157,7 @@ jobs:
           name: ai-agent-transcripts
           path: sessiontrail-transcripts
 
-      - uses: Conalh/SessionTrail@v0.3.0
+      - uses: Conalh/SessionTrail@v0.4.0
         with:
           transcript-dir: sessiontrail-transcripts
           repo: .
