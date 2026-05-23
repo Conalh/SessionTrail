@@ -21,7 +21,7 @@ It is intentionally not a hosted scanner. SessionTrail reads local transcript fi
 
 > ScopeTrail for config. SessionTrail for behavior.
 
-SessionTrail v0 reviews **tool intent** recorded in transcripts. It does not yet see denied actions or tool results unless those appear in future transcript formats.
+SessionTrail reviews **tool intent** recorded in transcripts — what the agent tried to do. It does not yet see denied actions, tool results, or approval outcomes; those will land when stable transcript fields exist across runtimes.
 
 ## Part of an AI-agent governance suite
 

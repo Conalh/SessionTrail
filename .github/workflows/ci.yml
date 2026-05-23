@@ -22,6 +22,12 @@ jobs:
 
       - run: npm ci
 
+      # Fast typecheck gate before the full build. tsc --noEmit catches
+      # type regressions in seconds; if this fails, no point building or
+      # testing. Redundant with `build` in the success case but the
+      # failure shape is clearer (typecheck errors vs build artifacts).
+      - run: npm run typecheck
+
       - run: npm run build
 
       - run: npm test
