@@ -139,6 +139,17 @@ test('CLI emits stdout, JSON file, and Markdown file in a single pass', async ()
 
     const jsonReport = JSON.parse(await readFile(jsonPath, 'utf8'));
     assert.equal(jsonReport.rating, 'critical');
+    // Regression guard (v0.6.1): --json-out must write the canonical
+    // agent-gov-core Report envelope, not the legacy SessionReport shape.
+    // GovVerdict's validateReport rejects the legacy shape, so a side-file
+    // that drops out of canonical silently disappears from the suite review.
+    assert.equal(jsonReport.schemaVersion, '1.0');
+    assert.equal(jsonReport.tool, 'session_trail');
+    assert.ok(Array.isArray(jsonReport.findings));
+    assert.equal(jsonReport.findingCount, undefined, '--json-out leaked legacy SessionReport shape');
+    assert.equal(jsonReport.toolInvocationCount, undefined, '--json-out leaked legacy SessionReport shape');
+    assert.ok(jsonReport.data, '--json-out must nest SessionTrail extras under .data');
+    assert.ok(typeof jsonReport.data.toolInvocationCount === 'number');
 
     const markdownReport = await readFile(mdPath, 'utf8');
     assert.match(markdownReport, /# SessionTrail behavior review: CRITICAL/);

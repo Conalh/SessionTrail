@@ -1,6 +1,6 @@
 {
   "name": "sessiontrail",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Runtime behavior review for AI agent sessions.",
   "type": "module",
   "bin": {

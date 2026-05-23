@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.6.1] — 2026-05-22
+
+### Fixed
+- `--json-out <path>` now writes the canonical agent-gov-core `Report` envelope (was leaking the legacy `SessionReport` shape, breaking GovVerdict consolidation). The v0.6.0 release migrated the `--format json` stdout path to the canonical envelope but the bundled Action artifact's `--json-out` side-file path still wrote the legacy `{ rating, findingCount, toolInvocationCount, runtimeUsage, behaviorSummary, ... }` shape. GovVerdict@v0.2.1 rejected those reports via `validateReport`, so SessionTrail findings were silently missing from the consolidated suite review. Caught end-to-end via `Conalh/agent-gov-demo#1`. Tool-specific runtime metrics (`toolInvocationCount`, `runtimeUsage`, `behaviorSummary`, etc.) now ride inside `Report.data` per substrate convention. The fix is purely a bundle rebuild — source already routed both paths through `renderReport(report, 'json')` after v0.6.0 landed, but the published `v0.6.0` Action bundle predated that and was never re-tagged.
+
 ## [0.6.0] — 2026-05-22
 
 **BREAKING** — JSON output now emits the canonical agent-gov-core `Report` envelope so the cross-tool meta-reviewer (GovVerdict) can ingest one shape across the whole suite.
