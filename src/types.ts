@@ -1,10 +1,14 @@
-// Single source of truth for the Finding schema across the agent-gov suite
-// lives in agent-gov-core. SessionTrail re-exports it here so internal
-// imports stay stable and downstream meta-reviewers can dedupe findings
-// from every suite tool against a shared shape.
+// Single source of truth for the Finding schema and Runtime union across the
+// agent-gov suite lives in agent-gov-core. SessionTrail re-exports them here
+// so internal imports stay stable and downstream meta-reviewers can dedupe
+// findings from every suite tool against a shared shape. AgentRuntime is just
+// core's Runtime under a local name — aliasing avoids a second copy that
+// silently drifts when core adds a runtime (e.g. 'antigravity' in v1.2.0).
+import type { Runtime } from 'agent-gov-core';
+
 export type { Finding, Severity } from 'agent-gov-core';
 
-export type AgentRuntime = 'cursor' | 'claude-code' | 'codex' | 'unknown';
+export type AgentRuntime = Runtime;
 
 export interface ToolEvent {
   tool: string;

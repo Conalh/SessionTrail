@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.6.2] — 2026-05-28
+
+### Changed
+- Transcript parsing now delegates per-line work (runtime detection, Codex `function_call` argument coercion, `apply_patch` handling) to agent-gov-core's shared parser surface (`parseAnthropicLine` / `parseCodexLine` / `isCodexLine` / `isCodexSessionMeta`), removing SessionTrail's vendored second copy that could silently drift from the substrate parser. SessionTrail keeps its own line-by-line walk so every `ToolEvent` still carries the transcript `line` number and `source` path that finding locations depend on — core's `TranscriptEvent` is timestamp-keyed and intentionally drops both. No observable change to findings, counts, or report output; the bundle was rebuilt.
+- `AgentRuntime` is now an alias of core's `Runtime`, picking up `'antigravity'` so the runtime-usage map no longer drifts when core adds a runtime.
+
+### Internal
+- Requires `agent-gov-core@^1.2.1` (was `^1.0.0`); the shared parser surface landed in core v1.1.0.
+
 ## [0.6.1] — 2026-05-22
 
 ### Fixed

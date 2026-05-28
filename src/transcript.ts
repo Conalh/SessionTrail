@@ -1,33 +1,16 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  isCodexLine,
+  isCodexSessionMeta,
+  parseAnthropicLine,
+  parseCodexLine,
+  type Runtime,
+  type TranscriptEvent
+} from 'agent-gov-core';
 import { normalizePath } from './paths.js';
 import { collectEventPaths, extractShellPaths, isShellTool } from './tool-paths.js';
 import type { AgentRuntime, ToolEvent } from './types.js';
-
-interface TranscriptMessage {
-  role?: string;
-  type?: string;
-  cwd?: string;
-  sessionId?: string;
-  version?: string;
-  source?: string;
-  message?: {
-    content?: Array<{
-      type?: string;
-      name?: string;
-      input?: Record<string, unknown>;
-    }>;
-  };
-}
-
-interface CodexResponseItem {
-  type?: string;
-  payload?: {
-    type?: string;
-    name?: string;
-    arguments?: unknown;
-  };
-}
 
 // Surface counts so users can see when a transcript was partially
 // parsed. Audit tools that silently skip malformed lines hide signal —
@@ -76,11 +59,17 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
   return parseTranscriptEventsWithStats(raw, source).events;
 }
 
+// SessionTrail keeps its own line-by-line walk so each ToolEvent can carry the
+// transcript line number and source path that every finding's location depends
+// on — agent-gov-core's TranscriptEvent is keyed on timestamp and intentionally
+// drops both. The per-line *parsing* (runtime detection, Codex argument
+// coercion, apply_patch handling) is delegated to core so this tool no longer
+// vendors a second copy that drifts from the shared parser surface.
 export function parseTranscriptEventsWithStats(raw: string, source?: string): ParsedTranscript {
   const events: ToolEvent[] = [];
   const stats: ParseStats = { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 };
   let turn = 0;
-  let sessionRuntime: AgentRuntime = 'unknown';
+  let sessionRuntime: Runtime = 'unknown';
 
   for (const [index, line] of raw.split(/\r?\n/).entries()) {
     if (!line.trim()) {
@@ -89,9 +78,9 @@ export function parseTranscriptEventsWithStats(raw: string, source?: string): Pa
 
     stats.linesRead += 1;
 
-    let parsed: TranscriptMessage;
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(line) as TranscriptMessage;
+      parsed = JSON.parse(line);
     } catch {
       // Malformed JSON line — almost always a truncated transcript.
       // Counting it is the difference between an audit user noticing
@@ -105,34 +94,36 @@ export function parseTranscriptEventsWithStats(raw: string, source?: string): Pa
       continue;
     }
 
-    const codexEvent = parseCodexFunctionCall(parsed as CodexResponseItem, index + 1, turn, source);
-    if (codexEvent) {
-      events.push(codexEvent);
-      stats.eventsExtracted += 1;
-      continue;
-    }
-
-    const runtime = detectAnthropicRuntime(parsed, sessionRuntime);
-
-    if (parsed.role === 'assistant' || parsed.type === 'assistant') {
+    // A new turn begins at each assistant line, so tool calls inside that
+    // message share its turn number. Read off the raw line rather than the
+    // parsed events to preserve the exact pre-core numbering.
+    const lineRecord = parsed as { type?: unknown; role?: unknown };
+    if (lineRecord.type === 'assistant' || lineRecord.role === 'assistant') {
       turn += 1;
     }
 
-    const eventCwd = typeof parsed.cwd === 'string' && parsed.cwd ? parsed.cwd : undefined;
-    const blocks = parsed.message?.content ?? [];
-    for (const block of blocks) {
-      if (block.type !== 'tool_use' || !block.name) {
+    const parsedEvents: TranscriptEvent[] | null = isCodexLine(parsed)
+      ? parseCodexLine(parsed)
+      : parseAnthropicLine(parsed, sessionRuntime === 'unknown' ? undefined : sessionRuntime);
+
+    if (!parsedEvents) {
+      continue;
+    }
+
+    const lineNumber = index + 1;
+    for (const event of parsedEvents) {
+      if (event.kind !== 'tool_use' || !event.toolName) {
         continue;
       }
 
       events.push({
-        tool: block.name,
-        runtime,
-        line: index + 1,
+        tool: event.toolName,
+        runtime: event.runtime,
+        line: lineNumber,
         turn,
-        input: block.input ?? {},
+        input: event.toolInput ?? {},
         source,
-        cwd: eventCwd
+        cwd: event.cwd
       });
       stats.eventsExtracted += 1;
     }
@@ -154,11 +145,12 @@ function countRuntimeUsage(events: ToolEvent[]): Record<AgentRuntime, number> {
     cursor: 0,
     'claude-code': 0,
     codex: 0,
+    antigravity: 0,
     unknown: 0
   };
 
   for (const event of events) {
-    usage[event.runtime] += 1;
+    usage[event.runtime] = (usage[event.runtime] ?? 0) + 1;
   }
 
   return usage;
@@ -203,83 +195,6 @@ export function summarizeSession(events: ToolEvent[]) {
     toolUsage: countToolUsage(events),
     pathAccess: buildPathAccess(events)
   };
-}
-
-function isCodexSessionMeta(parsed: TranscriptMessage): boolean {
-  if (parsed.type !== 'session_meta') {
-    return false;
-  }
-
-  const payload = (parsed as { payload?: { originator?: unknown; source?: unknown } }).payload;
-  return payload?.originator === 'codex-tui' || payload?.source === 'cli';
-}
-
-function parseCodexFunctionCall(
-  parsed: CodexResponseItem,
-  line: number,
-  turn: number,
-  source: string | undefined
-): ToolEvent | undefined {
-  if (parsed.type !== 'response_item' || parsed.payload?.type !== 'function_call' || !parsed.payload.name) {
-    return undefined;
-  }
-
-  return {
-    tool: parsed.payload.name,
-    runtime: 'codex',
-    line,
-    turn,
-    input: parseCodexArguments(parsed.payload.arguments),
-    source
-  };
-}
-
-function parseCodexArguments(value: unknown): Record<string, unknown> {
-  if (isRecord(value)) {
-    return value;
-  }
-
-  if (typeof value !== 'string') {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (isRecord(parsed)) {
-      return parsed;
-    }
-  } catch {
-    // Freeform tool arguments such as apply_patch are intentionally not JSON.
-  }
-
-  return { patch: value };
-}
-
-function detectAnthropicRuntime(parsed: TranscriptMessage, sessionRuntime: AgentRuntime): AgentRuntime {
-  if (sessionRuntime !== 'unknown') {
-    return sessionRuntime;
-  }
-
-  if (
-    parsed.source === 'claude-code' ||
-    typeof parsed.sessionId === 'string' ||
-    typeof parsed.cwd === 'string' ||
-    typeof parsed.version === 'string' ||
-    parsed.type === 'assistant' ||
-    parsed.type === 'user'
-  ) {
-    return 'claude-code';
-  }
-
-  if (parsed.role || parsed.message) {
-    return 'cursor';
-  }
-
-  return 'unknown';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function listJsonlFiles(directory: string, current = ''): Promise<string[]> {
