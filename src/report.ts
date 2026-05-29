@@ -346,10 +346,6 @@ function renderSarif(report: SessionReport): string {
   return `${JSON.stringify(sarif, null, 2)}\n`;
 }
 
-function capitalize(value: string): string {
-  return `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
-}
-
 function formatParseStats(stats: ParseStats): string {
   // Mention skipped lines prominently when present — that's the signal
   // worth seeing. Pure noise to render "0 skipped" when everything went
