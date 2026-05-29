@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { detectSessionBehavior } from '../dist/detectors/session-behavior.js';
@@ -133,4 +135,42 @@ test('action.yml exposes session behavior outputs', async () => {
   assert.match(action, /transcript:/);
   assert.match(action, /tool-invocation-count/);
   assert.match(action, /runtime-count/);
+});
+
+test('directory mode does not follow symlinked transcripts pointing outside the tree', async (t) => {
+  const inside = await mkdtemp(join(tmpdir(), 'sessiontrail-symlink-inside-'));
+  const outside = await mkdtemp(join(tmpdir(), 'sessiontrail-symlink-outside-'));
+  const claudeLine = (command) =>
+    `${JSON.stringify({
+      type: 'assistant',
+      cwd: '/home/u',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: { command } }] }
+    })}\n`;
+  const secret = join(outside, 'secret.jsonl');
+  await writeFile(secret, claudeLine('echo LEAKED_FROM_SYMLINK'));
+  try {
+    try {
+      symlinkSync(secret, join(inside, 'link.jsonl'));
+    } catch (error) {
+      t.skip(`symlink creation not permitted on this platform (${error.code})`);
+      return;
+    }
+    await writeFile(join(inside, 'real.jsonl'), claudeLine('echo INSIDE_TREE'));
+
+    const events = await loadTranscriptDirectory(inside);
+    const commands = events.map((event) => JSON.stringify(event.input));
+
+    assert.ok(
+      commands.some((c) => c.includes('INSIDE_TREE')),
+      'a real transcript in the tree should still be parsed'
+    );
+    assert.equal(
+      commands.some((c) => c.includes('LEAKED_FROM_SYMLINK')),
+      false,
+      'a symlinked transcript pointing outside the tree must not be read'
+    );
+  } finally {
+    await rm(inside, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });

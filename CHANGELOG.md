@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.6.4] — 2026-05-28
+
+### Security
+- **Directory mode no longer follows symlinks out of the scanned transcript tree.** When invoked against a transcript directory, the recursive walk (`listJsonlFiles`) treated a symlinked `.jsonl` entry like any other file and read its target, so a symlink committed into an untrusted transcript tree could point at `/etc/passwd` or a sibling checkout and leak that content into finding evidence. The walk now skips symlinked entries (matching the ScopeTrail / CapabilityEcho directory walks). Single-file mode (`--transcript <file>`, an explicit user-named path) is unaffected; detection on legitimate trees is unchanged.
+- **Directory-mode walks now skip files larger than the shared 10 MiB input cap** (`withinByteCap` from agent-gov-core), so a single huge transcript in an untrusted tree can't exhaust memory when read and parsed.
+
+### Internal
+- Bumped `agent-gov-core` dependency `^1.2.1` → `^1.3.0`. Bundle rebuilt.
+
 ## [0.6.3] — 2026-05-28
 
 ### Fixed

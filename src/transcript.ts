@@ -1,10 +1,11 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   isCodexLine,
   isCodexSessionMeta,
   parseAnthropicLine,
   parseCodexLine,
+  withinByteCap,
   type Runtime,
   type TranscriptEvent
 } from 'agent-gov-core';
@@ -208,6 +209,13 @@ async function listJsonlFiles(directory: string, current = ''): Promise<string[]
   const sortedEntries = [...entries].sort((a, b) => a.name.localeCompare(b.name));
 
   for (const entry of sortedEntries) {
+    // Skip symlinks so a link committed into an untrusted transcript tree
+    // can't redirect a read at /etc/passwd or a sibling checkout into
+    // finding evidence. Mirrors the ScopeTrail / CapabilityEcho walks.
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+
     const relativePath = current ? `${current}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       files.push(...(await listJsonlFiles(directory, relativePath)));
@@ -215,7 +223,14 @@ async function listJsonlFiles(directory: string, current = ''): Promise<string[]
     }
 
     if (entry.name.endsWith('.jsonl')) {
-      files.push(join(directory, relativePath));
+      const fullPath = join(directory, relativePath);
+      // Cap per-file size with the shared core guard so a single adversarial
+      // multi-GB transcript can't exhaust memory when read and parsed.
+      const stats = await stat(fullPath);
+      if (!withinByteCap(stats.size)) {
+        continue;
+      }
+      files.push(fullPath);
     }
   }
 
