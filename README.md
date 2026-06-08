@@ -28,6 +28,23 @@ flowchart LR
 
 **See also:** [AgentPulse](https://github.com/Conalh/AgentPulse) for live trajectory monitoring · [GovVerdict](https://github.com/Conalh/GovVerdict) for one merged suite verdict · [agent-gov-core](https://github.com/Conalh/agent-gov-core) for the shared report schema.
 
+## Where this fits
+
+SessionTrail is the **after-the-fact** auditor — it reviews a transcript an agent already produced, not a diff or a config.
+
+| Tool | Input | Catches / decides | Output | Use when |
+|---|---|---|---|---|
+| [warden](https://github.com/Conalh/warden) | policy + tool action | allow / deny / ask | verdict | you need deterministic runtime policy decisions |
+| [barbican](https://github.com/Conalh/barbican) | MCP tools/list + tools/call | denied calls, ask handling, tool poisoning | enforced MCP proxy + reports | you need MCP runtime enforcement |
+| [ScopeTrail](https://github.com/Conalh/ScopeTrail) | PR base/head agent config | permission/config drift | annotations + report | a PR changes agent config |
+| [PolicyMesh](https://github.com/Conalh/PolicyMesh) | current repo policy/config files | contradictory rules across agent surfaces | report / SARIF | current policy is inconsistent |
+| [CapabilityEcho](https://github.com/Conalh/CapabilityEcho) | PR diff | new executable capability | annotations + report | code gains network/subprocess/eval/lifecycle/workflow power |
+| [TaskBound](https://github.com/Conalh/TaskBound) | stated task + PR diff | scope creep | annotations + report | an agent may have gone off-task |
+| **SessionTrail** | Cursor/Claude/Codex JSONL transcripts | risky runtime behavior | report / SARIF | an agent session already ran |
+| [GovVerdict](https://github.com/Conalh/GovVerdict) | JSON reports | deduped suite verdict | merged report | you want one final review verdict |
+| [AgentPulse](https://github.com/Conalh/AgentPulse) | live session events | trajectory state | terminal dashboard | you want live session observation |
+| [agent-gov-core](https://github.com/Conalh/agent-gov-core) | shared schemas/parsers | common Finding/Report model | library | tools need shared report primitives |
+
 ## Why this exists
 
 AI agents routinely do things their prompt never asked for: open `~/.ssh/id_rsa`, read another session's transcript, pipe a shell installer in from the network, or call an MCP server nobody approved. Runtime logs record those tool calls in plain JSONL, but teams rarely read them.
