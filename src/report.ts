@@ -49,7 +49,8 @@ const SUMMARY_LABELS: Record<string, string> = {
   'session_trail.network_intent': 'external network requests',
   'session_trail.subagent_spawned': 'subagent spawns',
   'session_trail.broad_path_scan': 'broad home-directory scans',
-  'session_trail.parse_lines_skipped': 'malformed transcript lines skipped'
+  'session_trail.parse_lines_skipped': 'malformed transcript lines skipped',
+  'session_trail.transcript_file_skipped': 'transcript files skipped before parsing'
 };
 
 export function createReport(
@@ -351,9 +352,14 @@ function formatParseStats(stats: ParseStats): string {
   // worth seeing. Pure noise to render "0 skipped" when everything went
   // fine, so only call it out when it's non-zero.
   const base = `${stats.linesRead} lines, ${stats.eventsExtracted} events`;
-  return stats.linesSkipped > 0
-    ? `${base}, ${stats.linesSkipped} skipped (malformed JSON)`
-    : base;
+  const extras: string[] = [];
+  if (stats.linesSkipped > 0) {
+    extras.push(`${stats.linesSkipped} skipped (malformed JSON)`);
+  }
+  if (stats.filesSkipped.length > 0) {
+    extras.push(`${stats.filesSkipped.length} file${stats.filesSkipped.length === 1 ? '' : 's'} skipped before parsing`);
+  }
+  return [base, ...extras].join(', ');
 }
 
 function formatRuntimeUsage(runtimeUsage: Record<AgentRuntime, number>): string {
