@@ -20,6 +20,13 @@ export interface ParseStats {
   linesRead: number;
   eventsExtracted: number;
   linesSkipped: number;
+  filesSkipped: SkippedTranscriptFile[];
+}
+
+export interface SkippedTranscriptFile {
+  path: string;
+  reason: 'too_large';
+  sizeBytes: number;
 }
 
 export interface ParsedTranscript {
@@ -41,9 +48,10 @@ export async function loadTranscriptDirectory(directory: string): Promise<ToolEv
 }
 
 export async function loadTranscriptDirectoryWithStats(directory: string): Promise<ParsedTranscript> {
-  const files = await listJsonlFiles(directory);
+  const { files, filesSkipped } = await listJsonlFiles(directory);
   const events: ToolEvent[] = [];
-  const stats: ParseStats = { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 };
+  const stats = emptyParseStats();
+  stats.filesSkipped.push(...filesSkipped);
 
   for (const file of files) {
     const parsed = await loadTranscriptEventsWithStats(file);
@@ -68,7 +76,7 @@ export function parseTranscriptEvents(raw: string, source?: string): ToolEvent[]
 // vendors a second copy that drifts from the shared parser surface.
 export function parseTranscriptEventsWithStats(raw: string, source?: string): ParsedTranscript {
   const events: ToolEvent[] = [];
-  const stats: ParseStats = { linesRead: 0, eventsExtracted: 0, linesSkipped: 0 };
+  const stats = emptyParseStats();
   let turn = 0;
   let sessionRuntime: Runtime = 'unknown';
 
@@ -131,6 +139,15 @@ export function parseTranscriptEventsWithStats(raw: string, source?: string): Pa
   }
 
   return { events, stats };
+}
+
+function emptyParseStats(): ParseStats {
+  return {
+    linesRead: 0,
+    eventsExtracted: 0,
+    linesSkipped: 0,
+    filesSkipped: []
+  };
 }
 
 function countToolUsage(events: ToolEvent[]): Record<string, number> {
@@ -198,9 +215,15 @@ export function summarizeSession(events: ToolEvent[]) {
   };
 }
 
-async function listJsonlFiles(directory: string, current = ''): Promise<string[]> {
+interface JsonlFileListing {
+  files: string[];
+  filesSkipped: SkippedTranscriptFile[];
+}
+
+async function listJsonlFiles(directory: string, current = ''): Promise<JsonlFileListing> {
   const entries = await readdir(join(directory, current), { withFileTypes: true });
   const files: string[] = [];
+  const filesSkipped: SkippedTranscriptFile[] = [];
 
   // readdir order is filesystem-dependent — sorting by name gives
   // stable finding order and stable diffs across platforms / runs.
@@ -218,7 +241,9 @@ async function listJsonlFiles(directory: string, current = ''): Promise<string[]
 
     const relativePath = current ? `${current}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
-      files.push(...(await listJsonlFiles(directory, relativePath)));
+      const nested = await listJsonlFiles(directory, relativePath);
+      files.push(...nested.files);
+      filesSkipped.push(...nested.filesSkipped);
       continue;
     }
 
@@ -228,11 +253,12 @@ async function listJsonlFiles(directory: string, current = ''): Promise<string[]
       // multi-GB transcript can't exhaust memory when read and parsed.
       const stats = await stat(fullPath);
       if (!withinByteCap(stats.size)) {
+        filesSkipped.push({ path: fullPath, reason: 'too_large', sizeBytes: stats.size });
         continue;
       }
       files.push(fullPath);
     }
   }
 
-  return files;
+  return { files, filesSkipped };
 }

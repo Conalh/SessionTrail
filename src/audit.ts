@@ -29,6 +29,7 @@ export async function runSessionAudit(options: AuditInput): Promise<SessionRepor
   const transcriptPath = options.mode === 'transcript' ? options.transcriptPath : options.transcriptDir;
   const findings: Finding[] = [
     ...parseSkipFindings(parsed.stats, transcriptPath),
+    ...skippedTranscriptFileFindings(parsed.stats),
     ...detectSessionBehavior(options.repoRoot, parsed.events, allowlist)
   ];
 
@@ -61,4 +62,17 @@ function parseSkipFindings(stats: ParseStats, transcriptPath: string): Finding[]
     data: { linesRead: stats.linesRead, linesSkipped: stats.linesSkipped, eventsExtracted: stats.eventsExtracted },
     salientKey: `${transcriptPath}:${stats.linesSkipped}`
   })];
+}
+
+function skippedTranscriptFileFindings(stats: ParseStats): Finding[] {
+  return stats.filesSkipped.map((file) => createFinding({
+    tool: 'session_trail',
+    name: 'transcript_file_skipped',
+    severity: 'low',
+    message: `Transcript skipped before parsing: ${file.path}`,
+    detail: 'A transcript file exceeded the input size cap and was not parsed. Review the source file before trusting a clean audit result.',
+    location: { file: file.path },
+    data: { path: file.path, reason: file.reason, sizeBytes: file.sizeBytes },
+    salientKey: `${file.reason}:${file.path}:${file.sizeBytes}`
+  }));
 }

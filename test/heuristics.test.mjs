@@ -441,6 +441,32 @@ test('audit emits a low-severity finding when parse lines are skipped', async ()
   }
 });
 
+test('directory audit emits a finding when a transcript file exceeds the byte cap', async () => {
+  const { mkdtemp, rm, truncate, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { runSessionAudit } = await import('../dist/audit.js');
+
+  const tempDir = await mkdtemp(join(tmpdir(), 'sessiontrail-large-'));
+  const fixture = join(tempDir, 'oversized.jsonl');
+  try {
+    await writeFile(fixture, '');
+    await truncate(fixture, 10 * 1024 * 1024 + 1);
+
+    const report = await runSessionAudit({ mode: 'directory', transcriptDir: tempDir, repoRoot: tempDir });
+    const skipped = report.findings.find((f) => f.kind === 'session_trail.transcript_file_skipped');
+
+    assert.ok(skipped, 'expected transcript_file_skipped finding');
+    assert.equal(skipped.severity, 'low');
+    assert.equal(skipped.data.path, fixture);
+    assert.equal(skipped.data.reason, 'too_large');
+    assert.equal(report.parseStats.filesSkipped.length, 1);
+    assert.equal(report.parseStats.filesSkipped[0].path, fixture);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('parser counts malformed JSON lines as skipped and surfaces stats', async () => {
   const { parseTranscriptEventsWithStats } = await import('../dist/transcript.js');
   const raw = [

@@ -127,9 +127,9 @@ Summary: home or Cursor metadata access; reads outside the repository;
 
 - Runs entirely on your machine against local JSONL transcript files. **Uploads nothing by default** — no hosted scanner, no telemetry, no account.
 - Parses Cursor (`tool_use` blocks), Claude Code (`tool_use` blocks with per-message `cwd`), and Codex (`response_item` function calls) transcripts into a normalized stream of tool events.
-- Scores each event against a fixed set of behavior detectors spanning **11 finding kinds**: reads and writes outside `--repo`, privileged paths, home and agent-metadata directories, cross-session transcript access, broad scans of user roots, risky shell pipelines, MCP invocations, external network intent, and subagent spawns — plus the `parse_lines_skipped` coverage-gap signal below.
+- Scores each event against a fixed set of behavior detectors spanning **12 finding kinds**: reads and writes outside `--repo`, privileged paths, home and agent-metadata directories, cross-session transcript access, broad scans of user roots, risky shell pipelines, MCP invocations, external network intent, and subagent spawns — plus the coverage-gap signals below.
 - **Reads shell intent through obfuscation.** Commands are deep-tokenized — payloads nested in `bash -c "…"`, `$(…)`, and backticks are recursively flattened, and the verb head is normalized (`c""url`, `c\url`, and `sudo`/`env` wrappers are stripped) — so a risky verb can't dodge detection by hiding inside a wrapper. `curl … | sh`, `npm publish`, `rm -rf`, and `git push` shapes always escalate and **cannot be allowlisted**.
-- **A coverage gap can't read as clean.** When the parser skips malformed transcript lines, that is surfaced as its own `parse_lines_skipped` finding — a truncated or corrupted transcript reports the gap instead of masquerading as a clean session.
+- **A coverage gap can't read as clean.** When the parser skips malformed transcript lines or directory-mode transcript files that exceed the input byte cap, that is surfaced as `parse_lines_skipped` or `transcript_file_skipped` — truncated, corrupted, or oversized transcript input reports the gap instead of masquerading as a clean session.
 - Emits findings using the canonical `Finding` schema from [agent-gov-core](https://github.com/Conalh/agent-gov-core), with stable per-finding fingerprints so cross-tool dedupe and SARIF dedupe both work.
 
 Denied actions, tool results, and approval outcomes will land when stable transcript fields exist across runtimes.
@@ -140,7 +140,7 @@ Denied actions, tool results, and approval outcomes will land when stable transc
 - **Runtime-normalized.** Cursor, Claude Code, and Codex events are normalized into one tool-event stream before detection.
 - **Visible allowlists.** `.sessiontrail.json` can downgrade expected behavior, but risky patterns such as `curl | sh`, `npm publish`, `rm -rf`, and `git push` cannot be hidden.
 - **Suite-shaped output.** JSON uses the shared `Finding` contract so GovVerdict can merge it with static PR-time tools.
-- **Tested.** 65 tests (`npm test`) cover all three transcript formats, every finding kind, shell de-nesting and verb-head obfuscation, allowlist precedence, and the ReDoS and homoglyph-host guards.
+- **Tested.** 67 tests (`npm test`) cover all three transcript formats, every finding kind, shell de-nesting and verb-head obfuscation, allowlist precedence, and the ReDoS and homoglyph-host guards.
 
 ## Options
 
